@@ -238,10 +238,16 @@ int cadical_solver_addvar(cadical_solver* s) {
   SeeAlso     []
 
 ***********************************************************************/
-void cadical_solver_setnvars(cadical_solver* s,int n) {
+void cadical_solver_setnvars(cadical_solver* s, int n) {
+  // make sure current number of variables are already fetched
+  // (also allow cases where addvar has been called)
+  assert(s->nVars >= ccadical_vars((CCaDiCaL*)s->p));
+  // invalid to set fewer variables than current
+  assert(s->nVars <= n);
+  // set and resize if appropriate
   s->nVars = n;
   if(ccadical_vars((CCaDiCaL*)s->p) == 0) {
-    ccadical_reserve((CCaDiCaL*)s->p, n);
+    ccadical_resize((CCaDiCaL*)s->p, n);
   }
 }
 
@@ -259,6 +265,51 @@ void cadical_solver_setnvars(cadical_solver* s,int n) {
 ***********************************************************************/
 int cadical_solver_get_var_value(cadical_solver* s, int v) {
   return ccadical_val((CCaDiCaL*)s->p, v + 1) > 0;
+}
+
+/**Function*************************************************************
+
+  Synopsis    [get number of clauses]
+
+  Description []
+               
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+int cadical_solver_nclauses(cadical_solver* s) {
+  return ccadical_clauses((CCaDiCaL*)s->p);
+}
+
+/**Function*************************************************************
+
+  Synopsis    [get number of conflicts]
+
+  Description []
+               
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+int cadical_solver_nconflicts(cadical_solver* s) {
+  return ccadical_conflicts((CCaDiCaL*)s->p);
+}
+
+/**Function*************************************************************
+
+  Synopsis    [get number of learned clauses]
+
+  Description []
+               
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+int cadical_solver_nlearned(cadical_solver* s) {
+  return ccadical_learned((CCaDiCaL*)s->p);
 }
 
 

@@ -62,6 +62,9 @@ ABC_NAMESPACE_HEADER_START
 ///                       MACRO DEFINITIONS                          ///
 ////////////////////////////////////////////////////////////////////////
 
+// the maximum number of LUT libraries
+#define ABC_LUT_LIBS    4
+
 ////////////////////////////////////////////////////////////////////////
 ///                     FUNCTION DEFINITIONS                         ///
 ////////////////////////////////////////////////////////////////////////
@@ -89,6 +92,12 @@ extern ABC_DLL void            Abc_FrameReplaceCurrentNetwork( Abc_Frame_t * p, 
 extern ABC_DLL void            Abc_FrameUnmapAllNetworks( Abc_Frame_t * p );
 extern ABC_DLL void            Abc_FrameDeleteAllNetworks( Abc_Frame_t * p );
 
+extern ABC_DLL Abc_Frame_t *   Abc_FrameCreate();
+extern ABC_DLL void            Abc_FrameDestroy( Abc_Frame_t * p );
+extern ABC_DLL Abc_Frame_t *   Abc_FrameEnter( Abc_Frame_t * p );
+extern ABC_DLL void            Abc_FrameLeave( Abc_Frame_t * pPrevious );
+extern ABC_DLL Abc_Frame_t *   Abc_FrameCurrent();
+/* Deprecated: use Abc_FrameEnter()/Abc_FrameLeave(). */
 extern ABC_DLL void            Abc_FrameSetGlobalFrame( Abc_Frame_t * p );
 extern ABC_DLL Abc_Frame_t *   Abc_FrameGetGlobalFrame();
 extern ABC_DLL Abc_Frame_t *   Abc_FrameReadGlobalFrame();
@@ -96,6 +105,8 @@ extern ABC_DLL Abc_Frame_t *   Abc_FrameReadGlobalFrame();
 extern ABC_DLL Vec_Ptr_t *     Abc_FrameReadStore();                  
 extern ABC_DLL int             Abc_FrameReadStoreSize();              
 extern ABC_DLL void *          Abc_FrameReadLibLut();                    
+extern ABC_DLL void *          Abc_FrameReadLibLutI( int i );
+extern ABC_DLL void *          Abc_FrameReadLibCell();                    
 extern ABC_DLL void *          Abc_FrameReadLibBox();                    
 extern ABC_DLL void *          Abc_FrameReadLibGen();                    
 extern ABC_DLL void *          Abc_FrameReadLibGen2();                    
@@ -105,6 +116,13 @@ extern ABC_DLL void *          Abc_FrameReadManDd();
 extern ABC_DLL void *          Abc_FrameReadManDec();                    
 extern ABC_DLL void *          Abc_FrameReadManDsd();           
 extern ABC_DLL void *          Abc_FrameReadManDsd2();           
+extern ABC_DLL void *          Abc_FrameReadManDar();
+extern ABC_DLL void *          Abc_FrameReadManCnf();
+extern ABC_DLL void *          Abc_FrameReadManAigR();
+extern ABC_DLL void *          Abc_FrameReadManNpn();
+extern ABC_DLL void *          Abc_FrameReadManSdm();
+extern ABC_DLL void *          Abc_FrameReadManLms();
+extern ABC_DLL void *          Abc_FrameReadManBest();
 extern ABC_DLL Vec_Ptr_t *     Abc_FrameReadSignalNames();
 extern ABC_DLL char *          Abc_FrameReadSpecName();
          
@@ -134,6 +152,8 @@ extern ABC_DLL int             Abc_FrameReadCexFrame( Abc_Frame_t * p );
 extern ABC_DLL void            Abc_FrameSetNtkStore( Abc_Ntk_t * pNtk ); 
 extern ABC_DLL void            Abc_FrameSetNtkStoreSize( int nStored );  
 extern ABC_DLL void            Abc_FrameSetLibLut( void * pLib );        
+extern ABC_DLL void            Abc_FrameSetLibLutI( void * pLib, int i );
+extern ABC_DLL void            Abc_FrameSetLibCell( void * pLib );        
 extern ABC_DLL void            Abc_FrameSetLibBox( void * pLib );        
 extern ABC_DLL void            Abc_FrameSetLibGen( void * pLib );        
 extern ABC_DLL void            Abc_FrameSetLibGen2( void * pLib );        
@@ -145,6 +165,13 @@ extern ABC_DLL void            Abc_FrameSetNFrames( int nFrames );
 extern ABC_DLL void            Abc_FrameSetStatus( int Status );
 extern ABC_DLL void            Abc_FrameSetManDsd( void * pMan );
 extern ABC_DLL void            Abc_FrameSetManDsd2( void * pMan );
+extern ABC_DLL void            Abc_FrameSetManDar( void * pMan );
+extern ABC_DLL void            Abc_FrameSetManCnf( void * pMan );
+extern ABC_DLL void            Abc_FrameSetManAigR( void * pMan );
+extern ABC_DLL void            Abc_FrameSetManNpn( void * pMan );
+extern ABC_DLL void            Abc_FrameSetManSdm( void * pMan );
+extern ABC_DLL void            Abc_FrameSetManLms( void * pMan );
+extern ABC_DLL void            Abc_FrameSetManBest( void * pMan );
 extern ABC_DLL void            Abc_FrameSetInv( Vec_Int_t * vInv );
 extern ABC_DLL void            Abc_FrameSetCnf( Vec_Int_t * vInv );
 extern ABC_DLL void            Abc_FrameSetStr( Vec_Str_t * vInv );

@@ -47,7 +47,7 @@ If_LibLut_t * If_LibLutReadString( char * pStr )
 {
     If_LibLut_t * p;
     Vec_Ptr_t * vStrs;
-    char * pToken, * pBuffer, * pStrNew, * pStrMem;
+    char * pToken, * pBuffer, * pStrNew, * pStrMem, * pSave = NULL;
     int i, k, j;
 
     if ( pStr == NULL || pStr[0] == 0 )
@@ -73,7 +73,7 @@ If_LibLut_t * If_LibLutReadString( char * pStr )
     {
         if ( pBuffer[0] == 0 )
             continue;
-        pToken = strtok( pBuffer, " \t\n" );
+        pToken = Abc_UtilStrtok( pBuffer, " \t\n", &pSave );
         if ( pToken == NULL )
             continue;
         if ( pToken[0] == '#' )
@@ -89,12 +89,12 @@ If_LibLut_t * If_LibLutReadString( char * pStr )
         }
 
         // read area
-        pToken = strtok( NULL, " \t\n" );
+        pToken = Abc_UtilStrtok( NULL, " \t\n", &pSave );
         p->pLutAreas[i] = (float)atof(pToken);
 
         // read delays
         k = 0;
-        while ( (pToken = strtok( NULL, " \t\n" )) )
+        while ( (pToken = Abc_UtilStrtok( NULL, " \t\n", &pSave )) )
             p->pLutDelays[i][k++] = (float)atof(pToken);
 
         // check for out-of-bound
@@ -201,7 +201,7 @@ int Abc_FrameSetLutLibraryTest( Abc_Frame_t * pAbc )
 ***********************************************************************/
 If_LibLut_t * If_LibLutRead( char * FileName )
 {
-    char pBuffer[1000], * pToken;
+    char pBuffer[1000], * pToken, * pSave = NULL;
     If_LibLut_t * p;
     FILE * pFile;
     int i, k;
@@ -220,7 +220,7 @@ If_LibLut_t * If_LibLutRead( char * FileName )
     i = 1;
     while ( fgets( pBuffer, 1000, pFile ) != NULL )
     {
-        pToken = strtok( pBuffer, " \t\n" );
+        pToken = Abc_UtilStrtok( pBuffer, " \t\n", &pSave );
         if ( pToken == NULL )
             continue;
         if ( pToken[0] == '#' )
@@ -235,12 +235,12 @@ If_LibLut_t * If_LibLutRead( char * FileName )
         }
 
         // read area
-        pToken = strtok( NULL, " \t\n" );
+        pToken = Abc_UtilStrtok( NULL, " \t\n", &pSave );
         p->pLutAreas[i] = (float)atof(pToken);
 
         // read delays
         k = 0;
-        while ( (pToken = strtok( NULL, " \t\n" )) )
+        while ( (pToken = Abc_UtilStrtok( NULL, " \t\n", &pSave )) )
             p->pLutDelays[i][k++] = (float)atof(pToken);
 
         // check for out-of-bound
@@ -367,6 +367,296 @@ void If_LibLutPrint( If_LibLut_t * pLutLib )
     else
         for ( i = 1; i <= pLutLib->LutMax; i++ )
             Abc_Print( 1, "%d   %7.2f   %7.2f\n", i, pLutLib->pLutAreas[i], pLutLib->pLutDelays[i][0] );
+}
+
+/**Function*************************************************************
+
+  Synopsis    [Allocates the cell library structure.]
+
+  Description []
+
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+If_LibCell_t * If_LibCellAlloc( void )
+{
+    If_LibCell_t * p;
+    p = ABC_ALLOC( If_LibCell_t, 1 );
+    memset( p, 0, sizeof(If_LibCell_t) );
+    return p;
+}
+
+/**Function*************************************************************
+
+  Synopsis    [Computes the record size.]
+
+  Description []
+
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+static int If_LibCellComputeRecordSize( char * pFuncDesc, int nInputs )
+{
+    int i, nMapBytes, nRecordSize;
+    assert( pFuncDesc != NULL );
+    nMapBytes = (Abc_Base2Log(nInputs + 2) + 7) / 8;
+    nRecordSize = 1 + nInputs * nMapBytes;
+    for ( i = 0; pFuncDesc[i]; i++ )
+    {
+        int nLutVars = 0;
+        if ( pFuncDesc[i] != '{' )
+            continue;
+        for ( i++; pFuncDesc[i] && pFuncDesc[i] != '}'; i++ )
+            if ( pFuncDesc[i] >= 'a' && pFuncDesc[i] <= 'z' )
+                nLutVars++;
+        assert( nLutVars < 31 );
+        nRecordSize += ((1 << nLutVars) + 7) / 8;
+        if ( pFuncDesc[i] == 0 )
+            break;
+    }
+    return nRecordSize;
+}
+
+/**Function*************************************************************
+
+  Synopsis    [Reads the description of cells from the cell library file.]
+
+  Description []
+
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+If_LibCell_t * If_LibCellRead( char * FileName )
+{
+    char pBuffer[1000], * pToken, * pSave = NULL;
+    If_LibCell_t * p;
+    FILE * pFile;
+    int i, k;
+    int CellId;
+    char * FuncDesc;
+
+    pFile = fopen( FileName, "r" );
+    if ( pFile == NULL )
+    {
+        Abc_Print( -1, "Cannot open cell library file \"%s\".\n", FileName );
+        return NULL;
+    }
+
+    p = If_LibCellAlloc();
+    p->pName = Abc_UtilStrsav( FileName );
+    p->nCellNum = 0;
+
+    // Read each line of the file
+    while ( fgets( pBuffer, 1000, pFile ) != NULL )
+    {
+        pToken = Abc_UtilStrtok( pBuffer, " \t\n", &pSave );
+        if ( pToken == NULL )
+            continue;
+        if ( pToken[0] == '#' )
+            continue;
+
+        // Read CellId
+        CellId = atoi(pToken);
+        if ( CellId < 0 || CellId >= IF_MAX_LUTSIZE )
+        {
+            Abc_Print( -1, "Cell ID %d is out of bounds (0-%d).\n", CellId, IF_MAX_LUTSIZE-1 );
+            If_LibCellFree( p );
+            fclose( pFile );
+            return NULL;
+        }
+
+        // Read FuncDesc
+        pToken = Abc_UtilStrtok( NULL, " \t\n", &pSave );
+        if ( pToken == NULL )
+        {
+            Abc_Print( -1, "Missing function description for cell %d.\n", CellId );
+            If_LibCellFree( p );
+            fclose( pFile );
+            return NULL;
+        }
+        FuncDesc = Abc_UtilStrsav( pToken );
+        p->pCellNames[CellId] = FuncDesc;
+
+        // Determine number of inputs from function description
+        int nInputs = 0;
+        if ( FuncDesc[0] >= 'a' && FuncDesc[0] <= 'z' )
+        {
+            // If it begins with a letter, that letter indicates the output
+            // and the number of inputs is that letter - 'a'
+            nInputs = FuncDesc[0] - 'a';
+        }
+        else
+        {
+            // Otherwise, find the largest letter in the formula
+            char maxChar = 'a' - 1;
+            for ( i = 0; FuncDesc[i]; i++ )
+            {
+                if ( FuncDesc[i] >= 'a' && FuncDesc[i] <= 'z' && FuncDesc[i] > maxChar )
+                    maxChar = FuncDesc[i];
+            }
+            if ( maxChar >= 'a' )
+                nInputs = maxChar - 'a' + 1;
+        }
+        p->nCellInputs[CellId] = nInputs;
+        p->pCellRecordSizes[CellId] = If_LibCellComputeRecordSize( FuncDesc, nInputs );
+
+        // Read Area
+        pToken = Abc_UtilStrtok( NULL, " \t\n", &pSave );
+        if ( pToken == NULL )
+        {
+            Abc_Print( -1, "Missing area for cell %d.\n", CellId );
+            If_LibCellFree( p );
+            fclose( pFile );
+            return NULL;
+        }
+        p->pCellAreas[CellId] = (float)atof(pToken);
+
+        // Read all available delays
+        k = 0;
+        while ( (pToken = Abc_UtilStrtok( NULL, " \t\n", &pSave )) != NULL && k < IF_MAX_LUTSIZE )
+        {
+            p->pCellPinDelays[CellId][k] = atoi(pToken);
+            k++;
+        }
+
+        // Check if number of delays matches number of inputs
+        if ( k != nInputs )
+        {
+            Abc_Print( 0, "Warning: Cell %d has %d inputs but %d delays specified.\n", CellId, nInputs, k );
+        }
+
+        p->nCellNum++;
+    }
+
+    fclose( pFile );
+
+    // Validate the library
+    for ( i = 0; i < IF_MAX_LUTSIZE; i++ )
+    {
+        if ( p->pCellNames[i] == NULL )
+            continue;
+        for ( k = 0; k < IF_MAX_LUTSIZE && p->pCellPinDelays[i][k] > 0; k++ )
+        {
+            if ( p->pCellPinDelays[i][k] < 0 )
+            {
+                Abc_Print( 0, "Pin %d of cell %d has delay %d. Pin delays should be non-negative. Technology mapping may not work correctly.\n",
+                    k, i, p->pCellPinDelays[i][k] );
+            }
+        }
+    }
+
+    return p;
+}
+
+/**Function*************************************************************
+
+  Synopsis    [Duplicates the cell library.]
+
+  Description []
+
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+If_LibCell_t * If_LibCellDup( If_LibCell_t * p )
+{
+    If_LibCell_t * pNew;
+    int i;
+    pNew = ABC_ALLOC( If_LibCell_t, 1 );
+    *pNew = *p;
+    pNew->pName = Abc_UtilStrsav( p->pName );
+    for ( i = 0; i < IF_MAX_LUTSIZE; i++ )
+        if ( p->pCellNames[i] )
+            pNew->pCellNames[i] = Abc_UtilStrsav( p->pCellNames[i] );
+    return pNew;
+}
+
+/**Function*************************************************************
+
+  Synopsis    [Frees the cell library.]
+
+  Description []
+
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+void If_LibCellFree( If_LibCell_t * pCellLib )
+{
+    int i;
+    if ( pCellLib == NULL )
+        return;
+    ABC_FREE( pCellLib->pName );
+    for ( i = 0; i < IF_MAX_LUTSIZE; i++ )
+        ABC_FREE( pCellLib->pCellNames[i] );
+    ABC_FREE( pCellLib );
+}
+
+/**Function*************************************************************
+
+  Synopsis    [Returns the maximum number of inputs in the cell library.]
+
+  Description [Used for auto-detecting K value for &if command.]
+
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+int If_LibCellGetMaxInputs( If_LibCell_t * pCellLib )
+{
+    int i, nMaxInputs = 0;
+    if ( pCellLib == NULL )
+        return 0;
+    for ( i = 0; i < pCellLib->nCellNum; i++ )
+        if ( pCellLib->nCellInputs[i] > nMaxInputs )
+            nMaxInputs = pCellLib->nCellInputs[i];
+    return nMaxInputs;
+}
+
+/**Function*************************************************************
+
+  Synopsis    [Prints the cell library.]
+
+  Description []
+
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+void If_LibCellPrint( If_LibCell_t * pCellLib )
+{
+    int i, k;
+    if ( pCellLib == NULL )
+    {
+        Abc_Print( 1, "Cell library is not available.\n" );
+        return;
+    }
+    Abc_Print( 1, "# Cell library: %s\n", pCellLib->pName ? pCellLib->pName : "Unknown" );
+    Abc_Print( 1, "# Number of cells: %d\n", pCellLib->nCellNum );
+    Abc_Print( 1, "# CellId  Inputs  Cell Description                     Area     Delays\n" );
+
+    for ( i = 0; i < IF_MAX_LUTSIZE; i++ )
+    {
+        if ( pCellLib->pCellNames[i] == NULL )
+            continue;
+
+        Abc_Print( 1, "%3d  %6d       %-32s   %6.2f  ", i, pCellLib->nCellInputs[i], pCellLib->pCellNames[i], pCellLib->pCellAreas[i] );
+
+        // Print all non-zero delays
+        for ( k = 0; k < IF_MAX_LUTSIZE && pCellLib->pCellPinDelays[i][k] > 0; k++ )
+            Abc_Print( 1, " %4d", pCellLib->pCellPinDelays[i][k] );
+        Abc_Print( 1, "\n" );
+    }
 }
 
 /**Function*************************************************************

@@ -1240,6 +1240,17 @@ Vec_Int_t * Wlc_BlastDecoder2( Gia_Man_t * pNew, int * pNum, int nNum, Vec_Int_t
     Vec_IntFree( vRes2 );
     return vRes;
 }
+void Wlc_DumpMatrix( Gia_Man_t * pNew, Vec_Wec_t * vProds )
+{
+    char * pFileName = "booth_pps.aig";
+    Vec_Int_t * vLevel; int i, k, Entry;
+    Vec_WecForEachLevel( vProds, vLevel, i )
+        Vec_IntForEachEntry( vLevel, Entry, k )
+            Gia_ManAppendCo(pNew, Entry);
+    Gia_AigerWrite( pNew, pFileName, 0, 0, 0 );
+    printf( "Finished dumping Booth PPs into \"%s\".\n", pFileName );
+    exit(1);
+}
 void Wlc_BlastBooth( Gia_Man_t * pNew, int * pArgA, int * pArgB, int nArgA, int nArgB, Vec_Int_t * vRes, int fSigned, int fCla, Vec_Wec_t ** pvProds, int fVerbose )
 {
     Vec_Wec_t * vProds  = Vec_WecStart( nArgA + nArgB + 3 );
@@ -1324,6 +1335,7 @@ void Wlc_BlastBooth( Gia_Man_t * pNew, int * pArgA, int * pArgB, int nArgA, int 
         Vec_WecPrint( vProds, 0 );
     if ( fVerbose ) 
         printf( "Total PPs = %d.\n", Vec_WecSizeSize(vProds) );
+    //Wlc_DumpMatrix( pNew, vProds );
     //Wlc_BlastPrintMatrix( pNew, vProds, 1 );
     //printf( "Cutoff ID for partial products = %d.\n", Gia_ManObjNum(pNew) );
     if ( pvProds )
@@ -1335,6 +1347,49 @@ void Wlc_BlastBooth( Gia_Man_t * pNew, int * pArgA, int * pArgB, int nArgA, int 
     Vec_WecFree( vLevels );
     Vec_IntFree( vArgB );
 }
+
+void Wlc_NtkDumpMulties( Wlc_Ntk_t * p, Gia_Man_t * pNew )
+{
+    Wlc_Obj_t * pObj; int i;
+    Gia_ManCreateRefs( pNew );
+    Wlc_NtkForEachObj( p, pObj, i ) {
+        if ( pObj->Type != WLC_OBJ_ARI_MULTI )
+            continue;
+        int fSigned  = Wlc_ObjIsSignedFanin01(p, pObj);
+        int nRange   = Wlc_ObjRange( pObj );
+        int nRange0  = Wlc_ObjRange( Wlc_ObjFanin0(p, pObj) );
+        int nRange1  = Wlc_ObjRange( Wlc_ObjFanin1(p, pObj) );
+        int * pFans  = Vec_IntEntryP( &p->vBits, Wlc_ObjCopy(p, i) );
+        int * pFans0 = Vec_IntEntryP( &p->vBits, Wlc_ObjCopy(p, Wlc_ObjFaninId0(pObj)) );
+        int * pFans1 = Vec_IntEntryP( &p->vBits, Wlc_ObjCopy(p, Wlc_ObjFaninId1(pObj)) );
+
+        printf( "\n%d\n", fSigned );
+        printf( "%2d :", nRange0 );
+        for ( int k = 0; k < nRange0; k++ )
+            if ( pFans0[k] == -1 )
+                printf( " -" );
+            else
+                printf( " %c%d(%d)", Abc_LitIsCompl(pFans0[k])?'-':'+', Abc_Lit2Var(pFans0[k]), Gia_ObjRefNumId(pNew, Abc_Lit2Var(pFans0[k])) );
+        printf( "\n" );
+
+        printf( "%2d :", nRange1 );
+        for ( int k = 0; k < nRange1; k++ )
+            if ( pFans1[k] == -1 )
+                printf( " -" );
+            else
+                printf( " %c%d(%d)", Abc_LitIsCompl(pFans1[k])?'-':'+', Abc_Lit2Var(pFans1[k]), Gia_ObjRefNumId(pNew, Abc_Lit2Var(pFans1[k])) );
+        printf( "\n" );
+
+        printf( "%2d :", nRange );
+        for ( int k = 0; k < nRange; k++ )
+            if ( pFans[k] == -1 )
+                printf( " -" );
+            else
+                printf( " %c%d(%d)", Abc_LitIsCompl(pFans[k])?'-':'+', Abc_Lit2Var(pFans[k]), Gia_ObjRefNumId(pNew, Abc_Lit2Var(pFans[k])) );
+        printf( "\n" );
+    }
+}
+
 
 /**Function*************************************************************
 
@@ -1379,6 +1434,7 @@ Gia_Man_t * Wlc_NtkBitBlast( Wlc_Ntk_t * p, Wlc_BstPar_t * pParIn )
     // create AIG manager
     pNew = Gia_ManStart( 5 * Wlc_NtkObjNum(p) + 1000 );
     pNew->pName = Abc_UtilStrsav( p->pName );
+    pNew->pSpec = Abc_UtilStrsav( p->pSpec );
     pNew->fGiaSimple = pPar->fGiaSimple;
     if ( !pPar->fGiaSimple )
         Gia_ManHashAlloc( pNew );
@@ -1667,7 +1723,7 @@ Gia_Man_t * Wlc_NtkBitBlast( Wlc_Ntk_t * p, Wlc_BstPar_t * pParIn )
             Wlc_ObjForEachFanin( pObj, iFanin, k )
                 if ( k > 0 )
                     fSigned &= Wlc_NtkObj(p, iFanin)->Signed;
-            if ( pParIn->fBlastNew && nRange0 <= 16 )
+            if ( pPar->fBlastNew && nRange0 <= 16 )
             {
                 char * pNums = Wlc_NtkMuxTreeString( nRange0 );
                 Vec_Int_t ** pvDecs = Wlc_NtkMuxTree3DecsDerive( pNew, pFans0, nRange0, pNums );
@@ -1800,19 +1856,26 @@ Gia_Man_t * Wlc_NtkBitBlast( Wlc_Ntk_t * p, Wlc_BstPar_t * pParIn )
             Wlc_Obj_t * pFanin = Wlc_ObjFanin0(p, pObj);
             int End = Wlc_ObjRangeEnd(pObj);
             int Beg = Wlc_ObjRangeBeg(pObj);
-            if ( End >= Beg )
+            int Low  = Abc_MinInt( End, Beg );
+            int High = Abc_MaxInt( End, Beg );
+            assert( nRange == High - Low + 1 );
+            if ( pFanin->End >= pFanin->Beg )
             {
-                assert( nRange == End - Beg + 1 );
-                assert( pFanin->Beg <= Beg && End <= pFanin->End );
-                for ( k = Beg; k <= End; k++ )
-                    Vec_IntPush( vRes, pFans0[k - pFanin->Beg] );
+                assert( pFanin->Beg <= Low && High <= pFanin->End );
+                for ( k = 0; k < nRange; k++ )
+                {
+                    int Label = End >= Beg ? Beg + k : Beg - k;
+                    Vec_IntPush( vRes, pFans0[Label - pFanin->Beg] );
+                }
             }
             else
             {
-                assert( nRange == Beg - End + 1 );
-                assert( pFanin->End <= End && Beg <= pFanin->Beg );
-                for ( k = End; k <= Beg; k++ )
-                    Vec_IntPush( vRes, pFans0[k - pFanin->End] );
+                assert( pFanin->End <= Low && High <= pFanin->Beg );
+                for ( k = 0; k < nRange; k++ )
+                {
+                    int Label = End >= Beg ? Beg + k : Beg - k;
+                    Vec_IntPush( vRes, pFans0[pFanin->Beg - Label] );
+                }
             }
         }
         else if ( pObj->Type == WLC_OBJ_BIT_CONCAT )
@@ -1924,9 +1987,9 @@ Gia_Man_t * Wlc_NtkBitBlast( Wlc_Ntk_t * p, Wlc_BstPar_t * pParIn )
             int fCompl = (pObj->Type == WLC_OBJ_COMP_MOREEQU || pObj->Type == WLC_OBJ_COMP_LESSEQU);
             if ( fSwap ) ABC_SWAP( int *, pArg0, pArg1 );
             if ( fSigned )
-                iLit = pParIn->fBlastNew ? Wlc_BlastLessSigned3( pNew, pArg0, pArg1, nRangeMax ) :  Wlc_BlastLessSigned( pNew, pArg0, pArg1, nRangeMax );
+                iLit = pPar->fBlastNew ? Wlc_BlastLessSigned3( pNew, pArg0, pArg1, nRangeMax ) :  Wlc_BlastLessSigned( pNew, pArg0, pArg1, nRangeMax );
             else
-                iLit = pParIn->fBlastNew ? Wlc_BlastLess3( pNew, pArg0, pArg1, nRangeMax ) : Wlc_BlastLess( pNew, pArg0, pArg1, nRangeMax );
+                iLit = pPar->fBlastNew ? Wlc_BlastLess3( pNew, pArg0, pArg1, nRangeMax ) : Wlc_BlastLess( pNew, pArg0, pArg1, nRangeMax );
             iLit = Abc_LitNotCond( iLit, fCompl );
             Vec_IntFill( vRes, 1, iLit );
             for ( k = 1; k < nRange; k++ )
@@ -1987,8 +2050,10 @@ Gia_Man_t * Wlc_NtkBitBlast( Wlc_Ntk_t * p, Wlc_BstPar_t * pParIn )
                 int nRangeMax = Abc_MaxInt(nRange0, nRange1);
                 int * pArg0 = Wlc_VecLoadFanins( vTemp0, pFans0, nRange0, nRangeMax, fSigned );
                 int * pArg1 = Wlc_VecLoadFanins( vTemp1, pFans1, nRange1, nRangeMax, fSigned );
-                if ( nRange0 == nRange1 && Wlc_NtkCountConstBits(pArg0, nRangeMax) < Wlc_NtkCountConstBits(pArg1, nRangeMax) )
+                if ( Wlc_NtkCountConstBits(pArg0, nRangeMax) < Wlc_NtkCountConstBits(pArg1, nRangeMax) ) {
                     ABC_SWAP( int *, pArg0, pArg1 );
+                    ABC_SWAP( int, nRange0, nRange1 );
+                }
                 if ( pPar->fBooth )
                     Wlc_BlastBooth( pNew, pArg0, pArg1, nRange0, nRange1, vRes, fSigned, pPar->fCla, NULL, pParIn->fVerbose );
                 else if ( pPar->fCla )
@@ -2057,7 +2122,7 @@ Gia_Man_t * Wlc_NtkBitBlast( Wlc_Ntk_t * p, Wlc_BstPar_t * pParIn )
         else if ( pObj->Type == WLC_OBJ_DEC )
         {
             int * pArg0 = Wlc_VecLoadFanins( vTemp0, pFans0, nRange0, nRange0, 0 );
-            if ( pParIn->fBlastNew )
+            if ( pPar->fBlastNew )
                 Wlc_BlastDecoder2( pNew, pArg0, nRange0, vTemp2, vRes );
             else
                 Wlc_BlastDecoder( pNew, pArg0, nRange0, vTemp2, vRes );
@@ -2663,7 +2728,6 @@ Gia_Man_t * Wlc_NtkBitBlast( Wlc_Ntk_t * p, Wlc_BstPar_t * pParIn )
         Abc_FrameSetLibBox( pBoxLib );
     }
 
-    //pNew->pSpec = Abc_UtilStrsav( p->pSpec ? p->pSpec : p->pName );
     // dump the miter parts
     if ( 0 )
     {
@@ -2696,6 +2760,7 @@ Gia_Man_t * Wlc_NtkBitBlast( Wlc_Ntk_t * p, Wlc_BstPar_t * pParIn )
 //        Abc_Frame_t * pAbc = Abc_FrameGetGlobalFrame();
 //        pAbc->vMiniLutObjs = Gia_ManDeriveBoxMapping( pNew );        
 //    }
+    //Wlc_NtkDumpMulties( p, pNew );
     return pNew;
 }
 
@@ -2947,4 +3012,3 @@ void Wlc_MultBlastTest()
 
 
 ABC_NAMESPACE_IMPL_END
-

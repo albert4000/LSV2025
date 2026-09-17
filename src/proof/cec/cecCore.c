@@ -167,6 +167,9 @@ void Cec_ManCecSetDefaultParams( Cec_ParCec_t * p )
     p->fVeryVerbose   =       0;  // verbose stats
     p->fVerbose       =       0;  // verbose stats
     p->iOutFail       =      -1;  // the number of failed output
+    p->pNameSpec      =    NULL;  // name of the first (spec) network
+    p->pNameImpl      =    NULL;  // name of the second (impl) network
+    p->vNamesIn       =    NULL;  // input names of the first network
 }  
 
 /**Function*************************************************************
@@ -189,9 +192,18 @@ void Cec_ManCorSetDefaultParams( Cec_ParCor_t * p )
     p->nBTLimit       =     100;  // conflict limit at a node
     p->nLevelMax      =      -1;  // (scorr only) the max number of levels
     p->nStepsMax      =      -1;  // (scorr only) the max number of induction steps
+    p->nIncrFallbackPct =   100;  // (-i) fall back to full SRM when active pairs exceed this percent
+    p->nDynSrmRebuildPct =   20;  // (-D) cold-rebuild when active pairs exceed this percent
+    p->nDynSrmCompactMult =  4;   // (-D) cold-compact when core exceeds this multiple of reset size
     p->fLatchCorr     =       0;  // consider only latch outputs
     p->fConstCorr     =       0;  // consider only constants
     p->fUseRings      =       1;  // combine classes into rings
+    p->fIncrOracle    =       0;  // internal unbounded shadow SAT for pairs skipped by -i
+    p->fSkipFailResim =       0;  // skip resim when a round has no real CEX (only timeout/fail)
+    p->fDynSrmNoAdapt =       1;  // timing-guided DynSRM rebuild heuristic is opt-in
+    p->fUseTas        =       0;  // use CBS by default for persistent solving
+    p->fBmcTasAdaptive =      0;  // guarded BMC TAS rescue is opt-in (-Y)
+    p->fKissatCert    =       0;  // strict final base+step Kissat audit is opt-in
     p->fUseCSat       =       1;  // use circuit-based solver
 //    p->fFirstStop     =       0;  // stop on the first sat output
     p->fUseSmartCnf   =       0;  // use smart CNF computation
@@ -569,4 +581,3 @@ finalize:
 
 
 ABC_NAMESPACE_IMPL_END
-

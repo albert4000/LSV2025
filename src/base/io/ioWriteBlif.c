@@ -573,9 +573,20 @@ void Io_NtkWriteSubcktFanins( FILE * pFile, Abc_Obj_t * pNode )
   SeeAlso     []
 
 ***********************************************************************/
+static int Io_NtkNodesHaveSameFanins( Abc_Obj_t * pNode, Abc_Obj_t * pNode2 )
+{
+    Abc_Obj_t * pFanin;
+    int i;
+    if ( Abc_ObjFaninNum(pNode) != Abc_ObjFaninNum(pNode2) )
+        return 0;
+    Abc_ObjForEachFanin( pNode, pFanin, i )
+        if ( pFanin != Abc_ObjFanin(pNode2, i) )
+            return 0;
+    return 1;
+}
 int Io_NtkWriteNodeGate( FILE * pFile, Abc_Obj_t * pNode, int Length )
 {
-    static int fReport = 0;
+    static ABC_THREAD_LOCAL int fReport = 0;
     Mio_Gate_t * pGate = (Mio_Gate_t *)pNode->pData;
     Mio_Pin_t * pGatePin;
     Abc_Obj_t * pNode2;
@@ -594,6 +605,8 @@ int Io_NtkWriteNodeGate( FILE * pFile, Abc_Obj_t * pNode, int Length )
             fReport = 1, printf( "Warning: Missing second output of gate(s) \"%s\".\n", Mio_GateReadName(pGate) );
         return 0;
     }
+    if ( !Io_NtkNodesHaveSameFanins( pNode, pNode2 ) )
+        return 0;
     fprintf( pFile, " %s=%s", Mio_GateReadOutName((Mio_Gate_t *)pNode2->pData), Abc_ObjName( Abc_ObjFanout0(pNode2) ) );
     return 1;
 }
@@ -1016,7 +1029,7 @@ void Io_NtkWriteNodeIntStruct( FILE * pFile, Abc_Obj_t * pNode, Vec_Int_t * vCov
     {
         extern int If_CluMinimumBase( word * t, int * pSupp, int nVarsAll, int * pnVars );
 
-        static word TruthStore[16][1<<10] = {{0}}, * pTruths[16];
+        static ABC_THREAD_LOCAL word TruthStore[16][1<<10] = {{0}}, * pTruths[16];
         word pCube[1<<10], pRes[1<<10], Func0, Func1, Func2;
         char pLut0[32], pLut1[32], pLut2[32] = {0}, * pSop;
 //        int nVarsMin[3], pVars[3][20];
@@ -1189,7 +1202,7 @@ void Io_NtkWriteModelIntStruct( FILE * pFile, Abc_Obj_t * pNode, Vec_Int_t * vCo
     {
         extern int If_CluMinimumBase( word * t, int * pSupp, int nVarsAll, int * pnVars );
 
-        static word TruthStore[16][1<<10] = {{0}}, * pTruths[16];
+        static ABC_THREAD_LOCAL word TruthStore[16][1<<10] = {{0}}, * pTruths[16];
         word pCube[1<<10], pRes[1<<10], Func0, Func1, Func2;
         char pLut0[32], pLut1[32], pLut2[32] = {0}, * pSop;
 //        int nVarsMin[3], pVars[3][20];
@@ -1407,4 +1420,3 @@ void Io_WriteBlifSpecial( Abc_Ntk_t * pNtk, char * FileName, char * pLutStruct, 
 
 
 ABC_NAMESPACE_IMPL_END
-

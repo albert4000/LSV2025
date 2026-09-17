@@ -8,12 +8,14 @@ ReleaseExt/
 
 _/
 _TEST/
+tools/
+temp/
 lib/abc*
 lib/m114*
 lib/bip*
 docs/
-.vscode/
 .cache/
+.vscode/
 
 src/xxx/
 src/aig/au/
@@ -37,7 +39,7 @@ abcext.dsp
 
 abcexe.vcproj*
 abclib.vcproj*
-abcspace.sln
+/abcspace.sln
 abcspace.suo
 
 *.pyc

@@ -22,6 +22,7 @@
 #include "gia.h"
 #include "misc/tim/tim.h"
 #include "base/main/main.h"
+#include "map/if/if.h"
 
 ABC_NAMESPACE_IMPL_START
 
@@ -427,9 +428,6 @@ Gia_Man_t * Gia_AigerReadFromMemory( char * pContents, int nFileSize, int fGiaSi
                 }
                 else if ( *pType == 'l' )
                 {
-                    char Buffer[1000];
-                    assert( strlen(pName) < 995 );
-                    sprintf( Buffer, "%s_in", pName );
                     if ( vNamesRegIn == NULL )
                         vNamesRegIn = Vec_PtrStart( nLatches );
                     if ( vNamesRegOut == NULL )
@@ -439,7 +437,7 @@ Gia_Man_t * Gia_AigerReadFromMemory( char * pContents, int nFileSize, int fGiaSi
                         fError = 1;
                         break;
                     }
-                    Vec_PtrWriteEntry( vNamesRegIn,  iTerm, Abc_UtilStrsav(Buffer) );
+                    Vec_PtrWriteEntry( vNamesRegIn,  iTerm, Abc_UtilStrsavTwo(pName, (char *)"_in") );
                     Vec_PtrWriteEntry( vNamesRegOut, iTerm, Abc_UtilStrsav(pName) );
                 }
                 else if ( *pType == 'n' )
@@ -648,6 +646,15 @@ Gia_Man_t * Gia_AigerReadFromMemory( char * pContents, int nFileSize, int fGiaSi
             {
                 pCur++;
                 nInputs = Gia_AigerReadInt(pCur)/4;                        pCur += 4;
+                int nPiFf = Gia_ManPiNum(pNew) + Gia_ManRegNum(pNew);
+                if ( nInputs > nPiFf ) { 
+                    printf( "Warning: Timing info size (%d) exceeds PIs+FFs (%d). Using first %d values.\n", nInputs, nPiFf, nPiFf ); 
+                    nInputs = nPiFf; 
+                }
+                else if ( nInputs > Gia_ManPiNum(pNew) && nInputs < nPiFf ) { 
+                    printf( "Warning: Timing info size (%d) is between PIs (%d) and PIs+FFs (%d). Using first %d values.\n", nInputs, Gia_ManPiNum(pNew), nPiFf, Gia_ManPiNum(pNew) ); 
+                    nInputs = Gia_ManPiNum(pNew); 
+                }
                 pNew->vInArrs  = Vec_FltStart( nInputs );
                 memcpy( Vec_FltArray(pNew->vInArrs),  pCur, (size_t)4*nInputs );   pCur += 4*nInputs;
                 if ( fVerbose ) printf( "Finished reading extension \"i\".\n" );
@@ -656,28 +663,50 @@ Gia_Man_t * Gia_AigerReadFromMemory( char * pContents, int nFileSize, int fGiaSi
             {
                 pCur++;
                 nOutputs = Gia_AigerReadInt(pCur)/4;                       pCur += 4;
+                int nPoFf = Gia_ManPoNum(pNew) + Gia_ManRegNum(pNew);
+                if ( nOutputs > nPoFf ) { 
+                    printf( "Warning: Required time size (%d) exceeds POs+FFs (%d). Using first %d values.\n", nOutputs, nPoFf, nPoFf ); 
+                    nOutputs = nPoFf; 
+                }
+                else if ( nOutputs > Gia_ManPoNum(pNew) && nOutputs < nPoFf ) { 
+                    printf( "Warning: Required time size (%d) is between POs (%d) and POs+FFs (%d). Using first %d values.\n", nOutputs, Gia_ManPoNum(pNew), nPoFf, Gia_ManPoNum(pNew) ); 
+                    nOutputs = Gia_ManPoNum(pNew); 
+                }
                 pNew->vOutReqs  = Vec_FltStart( nOutputs );
                 memcpy( Vec_FltArray(pNew->vOutReqs),  pCur, (size_t)4*nOutputs ); pCur += 4*nOutputs;
+                // Convert -1.0 back to TIM_ETERNITY for internal use
+                {
+                    float * pArr = Vec_FltArray(pNew->vOutReqs);
+                    int i;
+                    for ( i = 0; i < nOutputs; i++ )
+                        if ( pArr[i] < 0 )
+                            pArr[i] = TIM_ETERNITY;
+                }
                 if ( fVerbose ) printf( "Finished reading extension \"o\".\n" );
             }
             // read equivalence classes
-            else if ( *pCur == 'e' )
-            {
-                extern Gia_Rpr_t * Gia_AigerReadEquivClasses( unsigned char ** ppPos, int nSize );
-                pCur++;
-                pCurTemp = pCur + Gia_AigerReadInt(pCur) + 4;              pCur += 4;
-                pNew->pReprs = Gia_AigerReadEquivClasses( &pCur, Gia_ManObjNum(pNew) );
-                pNew->pNexts = Gia_ManDeriveNexts( pNew );
-                assert( pCur == pCurTemp );
-                if ( fVerbose ) printf( "Finished reading extension \"e\".\n" );
-            }
+            //else if ( *pCur == 'e' )
+            //{
+            //    extern Gia_Rpr_t * Gia_AigerReadEquivClasses( unsigned char ** ppPos, int nSize );
+            //    pCur++;
+            //    pCurTemp = pCur + Gia_AigerReadInt(pCur) + 4;              pCur += 4;
+            //    pNew->pReprs = Gia_AigerReadEquivClasses( &pCur, Gia_ManObjNum(pNew) );
+            //    pNew->pNexts = Gia_ManDeriveNexts( pNew );
+            //    assert( pCur == pCurTemp );
+            //    if ( fVerbose ) printf( "Finished reading extension \"e\".\n" );
+            //}
             // read flop classes
             else if ( *pCur == 'f' )
             {
+                int i, nRegs;
                 pCur++;
-                assert( Gia_AigerReadInt(pCur) == 4*Gia_ManRegNum(pNew) );   pCur += 4;
-                pNew->vFlopClasses  = Vec_IntStart( Gia_ManRegNum(pNew) );
-                memcpy( Vec_IntArray(pNew->vFlopClasses),  pCur, (size_t)4*Gia_ManRegNum(pNew) );   pCur += 4*Gia_ManRegNum(pNew);
+                pCurTemp = pCur + Gia_AigerReadInt(pCur) + 4;           pCur += 4;
+                nRegs = Gia_AigerReadInt(pCur);                         pCur += 4;
+                //nRegs = (pCurTemp - pCur)/4;
+                pNew->vFlopClasses = Vec_IntAlloc( nRegs );
+                for ( i = 0; i < nRegs; i++ )
+                    Vec_IntPush( pNew->vFlopClasses, Gia_AigerReadInt(pCur) ), pCur += 4;
+                assert( pCur == pCurTemp );
                 if ( fVerbose ) printf( "Finished reading extension \"f\".\n" );
             }
             // read gate classes
@@ -800,6 +829,36 @@ Gia_Man_t * Gia_AigerReadFromMemory( char * pContents, int nFileSize, int fGiaSi
                 assert( pCur == pCurTemp );
                 if ( fVerbose ) printf( "Finished reading extension \"b\".\n" );
             }
+            // read configuration data for extension "j"
+            else if ( *pCur == 'j' )
+            {
+                int nSize, Reserved, NumCellTypes, CellId, BytesPerInstance, TotalInstances;
+                pCur++;
+                nSize = Gia_AigerReadInt(pCur);
+                pCurTemp = pCur + nSize + 4;                            pCur += 4;
+                // Read reserved value (should be 0)
+                Reserved = Gia_AigerReadInt(pCur);                      pCur += 4;
+                assert( Reserved == 0 );
+                // Read number of cell types
+                NumCellTypes = Gia_AigerReadInt(pCur);                  pCur += 4;
+                // Skip cell type definitions (we know them already)
+                for ( i = 0; i < NumCellTypes; i++ )
+                {
+                    CellId = Gia_AigerReadInt(pCur);                    pCur += 4;
+                    // Skip function description string (null-terminated)
+                    while ( *pCur++ != '\0' );
+                    BytesPerInstance = Gia_AigerReadInt(pCur);          pCur += 4;
+                }
+                // Read total number of instances
+                TotalInstances = Gia_AigerReadInt(pCur);                pCur += 4;
+                // Create byte vector for instance data
+                pNew->vConfigs2 = Vec_StrAlloc( (int)(pCurTemp - pCur) );
+                // Read instance data as bytes
+                while ( pCur < pCurTemp )
+                    Vec_StrPush( pNew->vConfigs2, *pCur++ );
+                assert( pCur == pCurTemp );
+                if ( fVerbose ) printf( "Finished reading extension \"j\".\n" );
+            }
             // read choices
             else if ( *pCur == 'q' )
             {
@@ -870,6 +929,25 @@ Gia_Man_t * Gia_AigerReadFromMemory( char * pContents, int nFileSize, int fGiaSi
                     printf( "Cannot read extension \"w\" because AIG is rehashed. Use \"&r -s <file.aig>\".\n" );
                 Vec_IntFree( vPairs );
             }
+            // read object ID mapping
+            else if ( *pCur == 'y' )
+            {
+                pCur++;
+                int nInts = Gia_AigerReadInt(pCur)/4; pCur += 4;
+                if ( fSkipStrash ) {
+                    pNew->vEquLitIds = Vec_IntStart( nInts );
+                    memcpy( Vec_IntArray(pNew->vEquLitIds), pCur, (size_t)4*nInts );
+                    if ( Vec_IntSize(pNew->vEquLitIds) != Gia_ManObjNum(pNew) ) {
+                        printf( "Cannot read extension \"y\" because object count changed. Use \"&r -s <file.aig>\".\n" );
+                        Vec_IntFreeP( &pNew->vEquLitIds );
+                    }
+                    else if ( fVerbose ) printf( "Finished reading extension \"y\".\n" );
+                }
+                else {
+                    if ( fVerbose ) printf( "Cannot read extension \"y\" because AIG is rehashed. Use \"&r -s <file.aig>\".\n" );
+                }
+                pCur += 4*nInts;
+            }
             else break;
         }
     }
@@ -912,6 +990,106 @@ Gia_Man_t * Gia_AigerReadFromMemory( char * pContents, int nFileSize, int fGiaSi
         pNew->vObjClasses  = vObjMap;
         pNew->pManTime     = pManTime;
         pNew->pAigExtra    = pAigExtra;
+    }
+
+    // Apply init state transformation for register boxes with init=1
+    if ( pNew->vRegInits && Vec_IntCountEntry(pNew->vRegInits, 1) > 0 )
+    {
+        extern void Gia_ManFlipInit1( Gia_Man_t * p, Vec_Int_t * vInit );
+        Tim_Man_t * pTimMan = (Tim_Man_t *)pNew->pManTime;
+
+        if ( pTimMan && Gia_ManRegBoxNum(pNew) > 0 )
+        {
+            // Handle register boxes: apply transformation to box inputs/outputs
+            Gia_Obj_t * pObj;
+            int i, curCo, curCi, nBoxIns, nBoxOuts;
+            int iRegBox = 0;
+
+            assert( Vec_IntSize(pNew->vRegInits) == Gia_ManRegBoxNum(pNew) );
+
+            // Step 1: Mark register box outputs with init state 1
+            curCi = Tim_ManPiNum(pTimMan);
+            for ( i = 0; i < Gia_ManBoxNum(pNew); i++ )
+            {
+                nBoxIns = Tim_ManBoxInputNum(pTimMan, i);
+                nBoxOuts = Tim_ManBoxOutputNum(pTimMan, i);
+                // Check if this is a register box (1-input, 1-output)
+                if ( nBoxIns == 1 && nBoxOuts == 1 )
+                {
+                    if ( Vec_IntEntry(pNew->vRegInits, iRegBox) == 1 )
+                    {
+                        pObj = Gia_ManCi(pNew, curCi);
+                        pObj->fMark0 = 1;
+                    }
+                    iRegBox++;
+                }
+                curCi += nBoxOuts;
+            }
+
+            // Step 2: Propagate complementation through AND gates
+            Gia_ManForEachAnd( pNew, pObj, i )
+            {
+                if ( Gia_ObjFanin0(pObj)->fMark0 )
+                    pObj->fCompl0 ^= 1;
+                if ( Gia_ObjFanin1(pObj)->fMark0 )
+                    pObj->fCompl1 ^= 1;
+            }
+
+            // Step 3: Complement CO fanins if needed
+            Gia_ManForEachCo( pNew, pObj, i )
+            {
+                if ( Gia_ObjFanin0(pObj)->fMark0 )
+                    pObj->fCompl0 ^= 1;
+            }
+
+            // Step 4: Clear marks
+            curCi = Tim_ManPiNum(pTimMan);
+            iRegBox = 0;
+            for ( i = 0; i < Gia_ManBoxNum(pNew); i++ )
+            {
+                nBoxIns = Tim_ManBoxInputNum(pTimMan, i);
+                nBoxOuts = Tim_ManBoxOutputNum(pTimMan, i);
+                if ( nBoxIns == 1 && nBoxOuts == 1 )
+                {
+                    if ( Vec_IntEntry(pNew->vRegInits, iRegBox) == 1 )
+                    {
+                        pObj = Gia_ManCi(pNew, curCi);
+                        pObj->fMark0 = 0;
+                    }
+                    iRegBox++;
+                }
+                curCi += nBoxOuts;
+            }
+
+            // Step 5: Complement register box inputs with init state 1
+            curCo = Tim_ManPoNum(pTimMan);
+            iRegBox = 0;
+            for ( i = 0; i < Gia_ManBoxNum(pNew); i++ )
+            {
+                nBoxIns = Tim_ManBoxInputNum(pTimMan, i);
+                nBoxOuts = Tim_ManBoxOutputNum(pTimMan, i);
+                if ( nBoxIns == 1 && nBoxOuts == 1 )
+                {
+                    if ( Vec_IntEntry(pNew->vRegInits, iRegBox) == 1 )
+                    {
+                        pObj = Gia_ManCo(pNew, curCo);
+                        pObj->fCompl0 ^= 1;
+                    }
+                    iRegBox++;
+                }
+                curCo += nBoxIns;
+            }
+
+            // Clear all init states to 0 (transformation is now structural)
+            Vec_IntFill( pNew->vRegInits, Vec_IntSize(pNew->vRegInits), 0 );
+        }
+        else if ( Gia_ManRegNum(pNew) > 0 )
+        {
+            // Handle regular flops (no boxes)
+            Gia_ManFlipInit1( pNew, pNew->vRegInits );
+            // Clear all init states to 0 (transformation is now structural)
+            Vec_IntFill( pNew->vRegInits, Vec_IntSize(pNew->vRegInits), 0 );
+        }
     }
 
     if ( fHieOnly )
@@ -1116,7 +1294,7 @@ Vec_Str_t * Gia_AigerWriteIntoMemoryStr( Gia_Man_t * p )
         Gia_AigerWriteUnsigned( vBuffer, uLit  - uLit1 );
         Gia_AigerWriteUnsigned( vBuffer, uLit1 - uLit0 );
     }
-    Vec_StrPrintStr( vBuffer, "c" );
+    Vec_StrPrintStr( vBuffer, "c\n" );
     return vBuffer;
 }
 
@@ -1373,42 +1551,56 @@ void Gia_AigerWriteS( Gia_Man_t * pInit, char * pFileName, int fWriteSymbols, in
     if ( p->pManTime )
     {
         float * pTimes;
-        pTimes = Tim_ManGetArrTimes( (Tim_Man_t *)p->pManTime );
+        pTimes = Tim_ManGetArrTimes( (Tim_Man_t *)p->pManTime, Gia_ManRegNum(p) );
         if ( pTimes )
         {
+            int nPis = Tim_ManPiNum((Tim_Man_t *)p->pManTime);
+            int nFlops = Gia_ManRegNum(p);
             fprintf( pFile, "i" );
-            Gia_FileWriteBufferSize( pFile, 4*Tim_ManPiNum((Tim_Man_t *)p->pManTime) );
-            fwrite( pTimes, 1, 4*Tim_ManPiNum((Tim_Man_t *)p->pManTime), pFile );
+            Gia_FileWriteBufferSize( pFile, 4*(nPis + nFlops) );
+            fwrite( pTimes, 1, 4*(nPis + nFlops), pFile );
             ABC_FREE( pTimes );
-            if ( fVerbose ) printf( "Finished writing extension \"i\".\n" );
+            if ( fVerbose ) printf( "Finished writing extension \"i\" (PIs+Flops).\n" );
         }
-        pTimes = Tim_ManGetReqTimes( (Tim_Man_t *)p->pManTime );
+        pTimes = Tim_ManGetReqTimes( (Tim_Man_t *)p->pManTime, Gia_ManRegNum(p) );
         if ( pTimes )
         {
+            int nPos = Tim_ManPoNum((Tim_Man_t *)p->pManTime);
+            int nFlops = Gia_ManRegNum(p);
+            // Convert TIM_ETERNITY sentinel to -1.0 per XAIG spec
+            {
+                int i;
+                for ( i = 0; i < nPos + nFlops; i++ )
+                    if ( pTimes[i] >= TIM_ETERNITY )
+                        pTimes[i] = -1.0;
+            }
             fprintf( pFile, "o" );
-            Gia_FileWriteBufferSize( pFile, 4*Tim_ManPoNum((Tim_Man_t *)p->pManTime) );
-            fwrite( pTimes, 1, 4*Tim_ManPoNum((Tim_Man_t *)p->pManTime), pFile );
+            Gia_FileWriteBufferSize( pFile, 4*(nPos + nFlops) );
+            fwrite( pTimes, 1, 4*(nPos + nFlops), pFile );
             ABC_FREE( pTimes );
-            if ( fVerbose ) printf( "Finished writing extension \"o\".\n" );
+            if ( fVerbose ) printf( "Finished writing extension \"o\" (POs+Flops).\n" );
         }
     }
     // write equivalences
-    if ( p->pReprs && p->pNexts )
-    {
-        extern Vec_Str_t * Gia_WriteEquivClasses( Gia_Man_t * p );
-        fprintf( pFile, "e" );
-        vStrExt = Gia_WriteEquivClasses( p );
-        Gia_FileWriteBufferSize( pFile, Vec_StrSize(vStrExt) );
-        fwrite( Vec_StrArray(vStrExt), 1, Vec_StrSize(vStrExt), pFile );
-        Vec_StrFree( vStrExt );
-    }
+    //if ( p->pReprs && p->pNexts )
+    //{
+    //    extern Vec_Str_t * Gia_WriteEquivClasses( Gia_Man_t * p );
+    //    fprintf( pFile, "e" );
+    //    vStrExt = Gia_WriteEquivClasses( p );
+    //    Gia_FileWriteBufferSize( pFile, Vec_StrSize(vStrExt) );
+    //    fwrite( Vec_StrArray(vStrExt), 1, Vec_StrSize(vStrExt), pFile );
+    //    Vec_StrFree( vStrExt );
+    //}
     // write flop classes
     if ( p->vFlopClasses )
     {
+        int i;
         fprintf( pFile, "f" );
-        Gia_FileWriteBufferSize( pFile, 4*Gia_ManRegNum(p) );
-        assert( Vec_IntSize(p->vFlopClasses) == Gia_ManRegNum(p) );
-        fwrite( Vec_IntArray(p->vFlopClasses), 1, 4*Gia_ManRegNum(p), pFile );
+        Gia_FileWriteBufferSize( pFile, 4*(Vec_IntSize(p->vFlopClasses)+1) );
+        Gia_FileWriteBufferSize( pFile, Vec_IntSize(p->vFlopClasses) );
+        for ( i = 0; i < Vec_IntSize(p->vFlopClasses); i++ )
+            Gia_FileWriteBufferSize( pFile, Vec_IntEntry(p->vFlopClasses, i) );
+        if ( fVerbose ) printf( "Finished writing extension \"f\".\n" );
     }
     // write gate classes
     if ( p->vGateClasses )
@@ -1492,6 +1684,7 @@ void Gia_AigerWriteS( Gia_Man_t * pInit, char * pFileName, int fWriteSymbols, in
         Gia_FileWriteBufferSize( pFile, Vec_IntSize(p->vRegClasses) );
         for ( i = 0; i < Vec_IntSize(p->vRegClasses); i++ )
             Gia_FileWriteBufferSize( pFile, Vec_IntEntry(p->vRegClasses, i) );
+        if ( fVerbose ) printf( "Finished writing extension \"r\".\n" );
     }
     // write register inits
     if ( p->vRegInits )
@@ -1513,6 +1706,88 @@ void Gia_AigerWriteS( Gia_Man_t * pInit, char * pFileName, int fWriteSymbols, in
 //        fwrite( Vec_IntArray(p->vConfigs), 1, 4*Vec_IntSize(p->vConfigs), pFile );
         for ( i = 0; i < Vec_IntSize(p->vConfigs); i++ )
             Gia_FileWriteBufferSize( pFile, Vec_IntEntry(p->vConfigs, i) );
+    }
+    // write configuration data for extension "j"
+    if ( p->vConfigs2 )
+    {
+        int nTotalSize, nInstances = 0;
+        If_LibCell_t * pLibCell = (If_LibCell_t *)Abc_FrameReadLibCell();
+        char *pCell0, *pCell1, *pCell2;
+
+        // Get formulas from cell library or use defaults
+        if ( pLibCell && pLibCell->nCellNum == 3 &&
+             pLibCell->pCellNames[0] && pLibCell->pCellNames[1] && pLibCell->pCellNames[2] )
+        {
+            pCell0 = pLibCell->pCellNames[0];
+            pCell1 = pLibCell->pCellNames[1];
+            pCell2 = pLibCell->pCellNames[2];
+        }
+        else
+        {
+            if ( !pLibCell )
+                Abc_Print( 0, "Warning: Cell library is not loaded. Using generic formulas.\n" );
+            else if ( pLibCell->nCellNum != 3 )
+                Abc_Print( 0, "Warning: Cell library has %d cells (expected exactly 3). Using generic formulas.\n", pLibCell->nCellNum );
+            else
+                Abc_Print( 0, "Warning: Cell library does not contain all required cells. Using generic formulas.\n" );
+            pCell0 = "Formula1";
+            pCell1 = "Formula2";
+            pCell2 = "Formula3";
+        }
+        // Count instances by scanning the byte data
+        for ( i = 0; i < Vec_StrSize(p->vConfigs2); )
+        {
+            unsigned char CellId = (unsigned char)Vec_StrEntry(p->vConfigs2, i);
+            if ( CellId == 0 )    
+                i += 7;  // 1 byte CellId + 4 bytes mapping + 2 bytes truth table
+            else if ( CellId == 1 )
+                i += 12; // 1 byte CellId + 7 bytes mapping + 4 bytes truth tables
+            else if ( CellId == 2 )
+                i += 14; // 1 byte CellId + 9 bytes mapping + 4 bytes truth tables
+            else
+                assert( 0 ); // Unknown cell type
+            nInstances++;
+        }
+        fprintf( pFile, "j" );
+        // Calculate total size
+        nTotalSize = 4;  // Reserved value
+        nTotalSize += 4; // Number of cell types
+        // Cell type 0
+        nTotalSize += 4; // CellId
+        nTotalSize += strlen(pCell0) + 1; // Function description
+        nTotalSize += 4; // Bytes per instance
+        // Cell type 1
+        nTotalSize += 4; // CellId
+        nTotalSize += strlen(pCell1) + 1; // Function description
+        nTotalSize += 4; // Bytes per instance
+        // Cell type 2
+        nTotalSize += 4; // CellId
+        nTotalSize += strlen(pCell2) + 1; // Function description
+        nTotalSize += 4; // Bytes per instance
+        // Instance data
+        nTotalSize += 4; // Total instances count
+        nTotalSize += Vec_StrSize(p->vConfigs2); // Actual instance data
+        Gia_FileWriteBufferSize( pFile, nTotalSize );
+        // Write reserved value
+        Gia_FileWriteBufferSize( pFile, 0 );
+        // Write number of cell types
+        Gia_FileWriteBufferSize( pFile, 3 );
+        // Write cell type 0 (LUT4)
+        Gia_FileWriteBufferSize( pFile, 0 ); // CellId
+        fwrite( pCell0, 1, strlen(pCell0) + 1, pFile );
+        Gia_FileWriteBufferSize( pFile, 7 ); // 1 byte CellId + 4 bytes mapping + 2 bytes truth table
+        // Write cell type 1 (S44)
+        Gia_FileWriteBufferSize( pFile, 1 ); // CellId
+        fwrite( pCell1, 1, strlen(pCell1) + 1, pFile );
+        Gia_FileWriteBufferSize( pFile, 12 ); // 1 byte CellId + 7 bytes mapping + 4 bytes truth tables
+        // Write cell type 2 (9-input)
+        Gia_FileWriteBufferSize( pFile, 2 ); // CellId
+        fwrite( pCell2, 1, strlen(pCell2) + 1, pFile );
+        Gia_FileWriteBufferSize( pFile, 14 ); // 1 byte CellId + 9 bytes mapping + 4 bytes truth tables
+        // Write total instances
+        Gia_FileWriteBufferSize( pFile, nInstances );
+        // Write instance data as raw bytes
+        fwrite( Vec_StrArray(p->vConfigs2), 1, Vec_StrSize(p->vConfigs2), pFile );
     }
     // write choices
     if ( Gia_ManHasChoices(p) )
@@ -1557,6 +1832,15 @@ void Gia_AigerWriteS( Gia_Man_t * pInit, char * pFileName, int fWriteSymbols, in
         Gia_FileWriteBufferSize( pFile, 4*Gia_ManObjNum(p) );
         assert( Vec_IntSize(p->vObjClasses) == Gia_ManObjNum(p) );
         fwrite( Vec_IntArray(p->vObjClasses), 1, 4*Gia_ManObjNum(p), pFile );
+    }
+    // write object classes
+    if ( p->vEquLitIds )
+    {
+        fprintf( pFile, "y" );
+        Gia_FileWriteBufferSize( pFile, 4*Gia_ManObjNum(p) );
+        assert( Vec_IntSize(p->vEquLitIds) == Gia_ManObjNum(p) );
+        fwrite( Vec_IntArray(p->vEquLitIds), 1, 4*Gia_ManObjNum(p), pFile );
+        if ( fVerbose ) printf( "Finished writing extension \"y\".\n" );
     }
     // write name
     if ( p->pName )
@@ -1797,4 +2081,3 @@ int main( int argc, char ** argv )
 
 
 ABC_NAMESPACE_IMPL_END
-

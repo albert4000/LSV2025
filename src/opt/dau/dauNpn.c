@@ -861,6 +861,131 @@ Vec_Mem_t * Dau_CollectNpnFunctions( word * p, int nVars, int fVerbose )
 
 /**Function*************************************************************
 
+  Synopsis    [Function enumeration.]
+
+  Description []
+               
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+Vec_Mem_t * Dau_CollectBoothFunctions( int nLog2Radix )
+{
+    assert( nLog2Radix >=2 && nLog2Radix <= 10 );
+    int nVars  = nLog2Radix + 1;
+    int nWords = Abc_Truth6WordNum( nVars );
+    int nFuncs = 1 << (nLog2Radix - 1);
+    int nMints = 1 << nVars;
+    Vec_Mem_t * vTtMem = Vec_MemAllocForTTSimple( nVars );
+    word * pFuncs = ABC_CALLOC( word, nWords * nFuncs );
+    int m, k, i;
+    for ( m = 0; m < nMints; m++ )
+    {
+        int d = (m & 1);
+        for ( k = 1; k < nLog2Radix; k++ )
+            if ( m & (1 << k) )
+                d += 1 << (k-1);
+        if ( m & (1 << nLog2Radix) )
+            d -= 1 << (nLog2Radix-1);
+        if ( d == 0 )
+            continue;
+        if ( d < 0 )
+            d = -d;
+        assert( d >= 1 && d <= nFuncs );
+        Abc_TtSetBit( pFuncs + (d-1)*nWords, m );
+    }
+    for ( i = 0; i < nFuncs; i++ ) {
+        if ( nVars < 6 )
+            pFuncs[i] = Abc_Tt6Stretch( pFuncs[i], nVars );
+        Vec_MemHashInsert( vTtMem, pFuncs + i*nWords );
+    }
+    ABC_FREE( pFuncs );
+    //Vec_MemDump( stdout, vTtMem );
+    return vTtMem;
+}
+
+/**Function*************************************************************
+
+  Synopsis    [Function enumeration.]
+
+  Description []
+               
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+void Dau_PrintNpnFunction( Vec_Mem_t * vTtMem, int nFuncs, word * pCopy, int nVars, int uPhase, int * pPerm, int fVerbose )
+{
+    int nWords = Abc_Truth6WordNum(nVars);
+    if ( fVerbose ) {
+        printf( "%6d : ", nFuncs );
+        Abc_TtPrintBits2((word *)&uPhase, nVars);
+        printf( "  " );
+        for ( int v = nVars-1; v >= 0; v-- )
+            printf( " %d", pPerm[v] );
+        printf( "   F = " );
+        Abc_TtPrintHexRev( stdout, pCopy, nVars );
+    }
+    int Pos = Vec_MemHashInsert( vTtMem, pCopy );
+    Abc_TtNot( pCopy, nWords );
+    if ( fVerbose ) {
+        printf( " (%05d)", Pos );
+        printf( "   ~F = " );
+        Abc_TtPrintHexRev( stdout, pCopy, nVars );
+    }
+    int Neg = Vec_MemHashInsert( vTtMem, pCopy );
+    Abc_TtNot( pCopy, nWords );
+    if ( fVerbose ) {
+        printf( " (%05d)", Neg );
+        printf( "\n" );
+    }
+}
+void Dau_PrintNpnFunctions( word * p, int nVars, int fVerbose )
+{
+    int nWords = Abc_Truth6WordNum(nVars);
+    Vec_Mem_t * vTtMem = Vec_MemAllocForTTSimple( nVars );
+    word * pCopy = ABC_ALLOC( word, nWords );
+    word * pBest = ABC_ALLOC( word, nWords );
+    Abc_TtCopy( pCopy, p, nWords, 0 );
+    Abc_TtCopy( pBest, p, nWords, 0 );
+    int nPerms  = Extra_Factorial( nVars );
+    int nMints  = 1 << nVars;
+    int * pPerm = Extra_PermSchedule( nVars );
+    int * pComp = Extra_GreyCodeSchedule( nVars );
+    int m, i, k, nFuncs = 0;
+    int uVarPhase = 0;
+    int pVarPerm[32];
+    printf( "The number of NPN configurations is %d = %d complementations * %d permutations * 2 output polarities.\n", nMints*nPerms*2, nMints, nPerms );
+    for ( i = 0; i < nVars; i++ )
+        pVarPerm[i] = i;
+    for ( m = 0; m < nMints; m++ ) {
+        for ( k = 0; k < nPerms; k++ ) {
+            if ( Abc_TtCompare(pBest, pCopy, nWords) == 1 )
+                Abc_TtCopy( pBest, pCopy, nWords, 0 );            
+            Dau_PrintNpnFunction( vTtMem, nFuncs++, pCopy, nVars, uVarPhase, pVarPerm, fVerbose );
+            Abc_TtSwapAdjacent( pCopy, nWords, pPerm[k] );
+            ABC_SWAP( int, pVarPerm[pPerm[k]], pVarPerm[pPerm[k]+1] );
+        }
+        if ( fVerbose ) printf( "\n" );
+        Abc_TtFlip( pCopy, nWords, pComp[m] );
+        uVarPhase ^= 1 << pComp[m];
+    }
+    assert( Abc_TtEqual(pCopy, p, nWords) );
+    printf( "The number of unique functions %d (out of %d).  Frequency = %d.  Representative: ", Vec_MemEntryNum(vTtMem), nMints*nPerms*2, nMints*nPerms*2/Vec_MemEntryNum(vTtMem) );
+    Abc_TtPrintHexRev( stdout, pBest, nVars );
+    printf( "\n" );
+    ABC_FREE( pPerm );    
+    ABC_FREE( pComp );    
+    ABC_FREE( pCopy );    
+    ABC_FREE( pBest );
+    Vec_MemHashFree( vTtMem );
+    Vec_MemFree( vTtMem );    
+}
+
+/**Function*************************************************************
+
   Synopsis    [Compute NPN class members.]
 
   Description []
@@ -957,7 +1082,6 @@ Vec_Mem_t * Dau_CollectNpnFunctionsArray( Vec_Wrd_t * vFuncs, int nVars, Vec_Int
 void Dau_CanonicizeArray( Vec_Wrd_t * vFuncs, int nVars, int fVerbose )
 {
     abctime clkStart  = Abc_Clock();
-    extern unsigned Abc_TtCanonicizeCA(Abc_TtHieMan_t * p, word * pTruth, int nVars, char * pCanonPerm, int iThres);
     if ( fVerbose )   printf( "Functions: %d (original) ", Vec_WrdSize(vFuncs) );
     unsigned uCanonPhase; char pCanonPerm[16]; word Func; int i;
     Vec_WrdUniqify( vFuncs );
@@ -986,4 +1110,3 @@ void Dau_CanonicizeArray( Vec_Wrd_t * vFuncs, int nVars, int fVerbose )
 ////////////////////////////////////////////////////////////////////////
 
 ABC_NAMESPACE_IMPL_END
-

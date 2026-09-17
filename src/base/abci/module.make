@@ -49,6 +49,7 @@ SRC +=    src/base/abci/abc.c \
     src/base/abci/abcProve.c \
     src/base/abci/abcQbf.c \
     src/base/abci/abcQuant.c \
+    src/base/abci/abcRmInverters.c \
     src/base/abci/abcRec3.c \
     src/base/abci/abcReconv.c \
     src/base/abci/abcReach.c \
@@ -71,6 +72,7 @@ SRC +=    src/base/abci/abc.c \
     src/base/abci/abcSymm.c \
     src/base/abci/abcTim.c \
     src/base/abci/abcTiming.c \
+    src/base/abci/abcTopo.c \
     src/base/abci/abcUnate.c \
     src/base/abci/abcUnreach.c \
     src/base/abci/abcVerify.c \

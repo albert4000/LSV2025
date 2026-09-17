@@ -482,6 +482,11 @@ private:
     for ( uint32_t i = 0; i < num_vars; ++i )
     {
       pComb[i] = pInvPerm[i] = i;
+      /* bestPerm is written only when some combination beats the initial
+       * best_cost.  When none does, the loop below still evaluates
+       * permutations[bestPerm[i]], which reads uninitialised stack and then
+       * indexes permutations[] with it.  Seed the identity permutation. */
+      bestPerm[i] = i;
     }
 
     /* early bail-out conditions */
@@ -512,15 +517,14 @@ private:
     } while ( combinations_offset_next( free_set_size, offset, pComb, pInvPerm, tt ) );
 
     std::array<uint32_t, max_num_vars> res_perm;
+    for ( uint32_t i = 0; i < num_vars; ++i )
+    {
+      res_perm[i] = permutations[bestPerm[i]];
+    }
 
     if ( best_cost > ( 1 << ( ps.lut_size - free_set_size ) ) )
     {
       return std::make_tuple( local_best_tt, res_perm, UINT32_MAX );
-    }
-
-    for ( uint32_t i = 0; i < num_vars; ++i )
-    {
-      res_perm[i] = permutations[bestPerm[i]];
     }
 
     return std::make_tuple( local_best_tt, res_perm, best_cost );
@@ -544,7 +548,11 @@ private:
     }
 
     /* enumerate combinations */
-    std::array<uint32_t, max_num_vars> res_perm;
+    std::array<uint32_t, max_num_vars> res_perm;    
+    for ( uint32_t i = 0; i < num_vars; ++i )
+    {
+      res_perm[i] = permutations[pComb[i]];
+    }
 
     do
     {
@@ -1314,7 +1322,10 @@ private:
     {
       auto mask = *tt.begin();
 
-      for ( auto i = real_num_vars; i < num_vars; ++i )
+      /* Replicate within the word only.  Variables 6 and above are replicated by the
+       * std::fill below, and shifting a 64-bit word by (1 << i) for i >= 6 is undefined
+       * behaviour rather than a no-op. */
+      for ( auto i = real_num_vars; i < std::min( num_vars, 6u ); ++i )
       {
         mask |= ( mask << ( 1 << i ) );
       }

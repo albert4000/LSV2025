@@ -609,7 +609,7 @@ float Abc_SclComputeAreaClass( SC_Cell * pRepr )
 void Abc_SclMarkSkippedCells( SC_Lib * p )
 {
     char FileName[1000];
-    char Buffer[1000], * pName;
+    char Buffer[1000], * pName, * pSave;
     SC_Cell * pCell;
     FILE * pFile;
     int CellId, nSkipped = 0;
@@ -619,7 +619,8 @@ void Abc_SclMarkSkippedCells( SC_Lib * p )
         return;
     while ( fgets( Buffer, 999, pFile ) != NULL )
     {
-        pName = strtok( Buffer, "\r\n\t " );
+        pSave = NULL;
+        pName = Abc_UtilStrtok( Buffer, "\r\n\t ", &pSave );
         if ( pName == NULL )
             continue;
         CellId = Abc_SclCellFind( p, pName );
@@ -747,6 +748,14 @@ void Abc_SclLibNormalizeSurface( SC_Surface * p, float Time, float Load )
         Vec_FltForEachEntry( vArray, Entry, i ) // delay/slew
             Vec_FltWriteEntry( vArray, i, Time * Entry );
 }
+void Abc_SclLibNormalizeSurfaceIndex( SC_Surface * p, float Time, float Load )
+{
+    int i; float Entry;
+    Vec_FltForEachEntry( &p->vIndex0, Entry, i ) // slew
+        Vec_FltWriteEntry( &p->vIndex0, i, Time * Entry );
+    Vec_FltForEachEntry( &p->vIndex1, Entry, i ) // load
+        Vec_FltWriteEntry( &p->vIndex1, i, Load * Entry );
+}
 void Abc_SclLibNormalize( SC_Lib * p )
 {
     SC_WireLoad * pWL;
@@ -780,6 +789,8 @@ void Abc_SclLibNormalize( SC_Lib * p )
             Abc_SclLibNormalizeSurface( &pTiming->pCellFall, Time, Load );
             Abc_SclLibNormalizeSurface( &pTiming->pRiseTrans, Time, Load );
             Abc_SclLibNormalizeSurface( &pTiming->pFallTrans, Time, Load );
+            Abc_SclLibNormalizeSurfaceIndex( &pTiming->pRisePower, Time, Load );
+            Abc_SclLibNormalizeSurfaceIndex( &pTiming->pFallPower, Time, Load );
         }
     }
 }
@@ -1134,4 +1145,3 @@ void Abc_SclInstallGenlib( void * pScl, float SlewInit, float Gain, int fUseAll,
 
 
 ABC_NAMESPACE_IMPL_END
-

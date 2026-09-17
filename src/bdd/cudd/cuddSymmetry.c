@@ -94,11 +94,11 @@ ABC_NAMESPACE_IMPL_START
 static char rcsid[] DD_UNUSED = "$Id: cuddSymmetry.c,v 1.26 2009/02/19 16:23:54 fabio Exp $";
 #endif
 
-static  int     *entry;
+static ABC_THREAD_LOCAL int *entry;
 
-extern  int     ddTotalNumberSwapping;
+extern ABC_THREAD_LOCAL int ddTotalNumberSwapping;
 #ifdef DD_STATS
-extern  int     ddTotalNISwaps;
+extern ABC_THREAD_LOCAL int ddTotalNISwaps;
 #endif
 
 /*---------------------------------------------------------------------------*/
@@ -609,11 +609,11 @@ ddSymmUniqueCompare(
   int * ptrX,
   int * ptrY)
 {
-#if 0
+//#if 0
     if (entry[*ptrY] == entry[*ptrX]) {
         return((*ptrX) - (*ptrY));
     }
-#endif
+//#endif
     return(entry[*ptrY] - entry[*ptrX]);
 
 } /* end of ddSymmUniqueCompare */
@@ -1703,4 +1703,3 @@ ddSymmSummary(
 
 
 ABC_NAMESPACE_IMPL_END
-

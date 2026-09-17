@@ -635,8 +635,11 @@ static inline void Vec_IntFillExtra( Vec_Int_t * p, int nSize, int Fill )
         Vec_IntGrow( p, nSize );
     else if ( nSize > p->nCap )
         Vec_IntGrow( p, p->nCap < ABC_INT_MAX/2 ? 2 * p->nCap : ABC_INT_MAX );
-    for ( i = p->nSize; i < nSize; i++ )
-        p->pArray[i] = Fill;
+    if ( Fill == 0 || Fill == -1 )
+        memset( p->pArray + p->nSize, Fill, sizeof(int) * (size_t)(nSize - p->nSize) );
+    else
+        for ( i = p->nSize; i < nSize; i++ )
+            p->pArray[i] = Fill;
     p->nSize = nSize;
 }
 
@@ -1069,28 +1072,28 @@ static inline int Vec_IntFind( Vec_Int_t * p, int Entry )
 ***********************************************************************/
 static inline int Vec_IntRemove( Vec_Int_t * p, int Entry )
 {
-    int i;
-    for ( i = 0; i < p->nSize; i++ )
+    int i, Size = p->nSize;
+    for ( i = 0; i < Size; i++ )
         if ( p->pArray[i] == Entry )
             break;
-    if ( i == p->nSize )
+    if ( i == Size )
         return 0;
-    assert( i < p->nSize );
-    for ( i++; i < p->nSize; i++ )
+    assert( i < Size );
+    for ( i++; i < Size; i++ )
         p->pArray[i-1] = p->pArray[i];
     p->nSize--;
     return 1;
 }
 static inline int Vec_IntRemove1( Vec_Int_t * p, int Entry )
 {
-    int i;
-    for ( i = 1; i < p->nSize; i++ )
+    int i, Size = p->nSize;
+    for ( i = 1; i < Size; i++ )
         if ( p->pArray[i] == Entry )
             break;
-    if ( i >= p->nSize )
+    if ( i >= Size )
         return 0;
-    assert( i < p->nSize );
-    for ( i++; i < p->nSize; i++ )
+    assert( i < Size );
+    for ( i++; i < Size; i++ )
         p->pArray[i-1] = p->pArray[i];
     p->nSize--;
     return 1;
@@ -1277,6 +1280,16 @@ static inline Vec_Int_t * Vec_IntInvert( Vec_Int_t * p, int Fill )
         if ( Entry != Fill )
             Vec_IntWriteEntry( vRes, Entry, i );
     return vRes;
+}
+static inline Vec_Int_t * Vec_IntInvertSize( Vec_Int_t * p, int Size, int Fill ) 
+{
+    Vec_Int_t * vMap = Vec_IntAlloc( 0 );
+    Vec_IntFill( vMap, Size, Fill );
+    int i, k;
+    Vec_IntForEachEntry( p, i, k )
+        if ( i != Fill )
+            Vec_IntWriteEntry( vMap, i, k );
+    return vMap;
 }
 
 /**Function*************************************************************
@@ -1937,16 +1950,16 @@ static inline int Vec_IntTwoRemove( Vec_Int_t * vArr1, Vec_Int_t * vArr2 )
 
 /**Function*************************************************************
 
-  Synopsis    [Returns the result of merging the two vectors.]
+  Synopsis    [Keeps only those entries in vArr1, which are in vArr2.]
 
-  Description [Keeps only those entries of vArr1, which are in vArr2.]
+  Description [Assumes that the vectors are sorted in the increasing order.]
                
   SideEffects []
 
   SeeAlso     []
 
 ***********************************************************************/
-static inline void Vec_IntTwoMerge1( Vec_Int_t * vArr1, Vec_Int_t * vArr2 )
+static inline void Vec_IntTwoFilter( Vec_Int_t * vArr1, Vec_Int_t * vArr2 )
 {
     int * pBeg  = vArr1->pArray;
     int * pBeg1 = vArr1->pArray;

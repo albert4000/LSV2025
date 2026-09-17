@@ -93,13 +93,14 @@ static int IoCommandWriteTruths ( Abc_Frame_t * pAbc, int argc, char **argv );
 static int IoCommandWriteStatus ( Abc_Frame_t * pAbc, int argc, char **argv );
 static int IoCommandWriteSmv    ( Abc_Frame_t * pAbc, int argc, char **argv );
 static int IoCommandWriteJson   ( Abc_Frame_t * pAbc, int argc, char **argv );
+static int IoCommandWriteJsonC  ( Abc_Frame_t * pAbc, int argc, char **argv );
 static int IoCommandWriteResub  ( Abc_Frame_t * pAbc, int argc, char **argv );
 static int IoCommandWriteMM     ( Abc_Frame_t * pAbc, int argc, char **argv );
 static int IoCommandWriteMMGia  ( Abc_Frame_t * pAbc, int argc, char **argv );
 
 extern void Abc_FrameCopyLTLDataBase( Abc_Frame_t *pAbc, Abc_Ntk_t * pNtk );
 
-extern int glo_fMapped;
+extern ABC_THREAD_LOCAL int glo_fMapped;
 
 ////////////////////////////////////////////////////////////////////////
 ///                     FUNCTION DEFINITIONS                         ///
@@ -126,7 +127,6 @@ void Io_Init( Abc_Frame_t * pAbc )
     Cmd_CommandAdd( pAbc, "I/O", "read_blif_mv",  IoCommandReadBlifMv,   1 );
     Cmd_CommandAdd( pAbc, "I/O", "read_bench",    IoCommandReadBench,    1 );
     Cmd_CommandAdd( pAbc, "I/O", "read_cex",      IoCommandReadCex,      1 );
-    Cmd_CommandAdd( pAbc, "I/O", "read_dsd",      IoCommandReadDsd,      1 );
     Cmd_CommandAdd( pAbc, "I/O", "read_formula",  IoCommandReadDsd,      1 );
 //    Cmd_CommandAdd( pAbc, "I/O", "read_edif",     IoCommandReadEdif,     1 );
     Cmd_CommandAdd( pAbc, "I/O", "read_eqn",      IoCommandReadEqn,      1 );
@@ -177,6 +177,7 @@ void Io_Init( Abc_Frame_t * pAbc )
     Cmd_CommandAdd( pAbc, "I/O", "write_status",  IoCommandWriteStatus,  0 );
     Cmd_CommandAdd( pAbc, "I/O", "write_smv",     IoCommandWriteSmv,     0 );
     Cmd_CommandAdd( pAbc, "I/O", "write_json",    IoCommandWriteJson,    0 );
+    Cmd_CommandAdd( pAbc, "I/O", "write_jsonc",   IoCommandWriteJsonC,   0 );
     Cmd_CommandAdd( pAbc, "I/O", "&write_resub",  IoCommandWriteResub,   0 );
     Cmd_CommandAdd( pAbc, "I/O", "write_mm",      IoCommandWriteMM,      0 );
     Cmd_CommandAdd( pAbc, "I/O", "&write_mm",     IoCommandWriteMMGia,   0 );
@@ -1078,10 +1079,10 @@ int IoCommandReadDsd( Abc_Frame_t * pAbc, int argc, char ** argv )
     return 0;
 
 usage:
-    fprintf( pAbc->Err, "usage: read_dsd [-h] <formula>\n" );
-    fprintf( pAbc->Err, "\t          parses a formula representing DSD of a function\n" );
+    fprintf( pAbc->Err, "usage: read_formula [-h] <formula>\n" );
+    fprintf( pAbc->Err, "\t          reads a Boolean function represented by a formula\n" );
     fprintf( pAbc->Err, "\t-h      : prints the command summary\n" );
-    fprintf( pAbc->Err, "\tformula : the formula representing disjoint-support decomposition (DSD)\n" );
+    fprintf( pAbc->Err, "\tformula : the formula representing the function\n" );
     fprintf( pAbc->Err, "\t          Example of a formula: !(a*(b+CA(!d,e*f,c))*79B3(g,h,i,k))\n" );
     fprintf( pAbc->Err, "\t          where \'!\' is an INV, \'*\' is an AND, \'+\' is an XOR, \n" );
     fprintf( pAbc->Err, "\t          CA and 79B3 are hexadecimal representations of truth tables\n" );
@@ -1889,7 +1890,8 @@ usage:
 ***********************************************************************/
 int IoCommandReadJsonc( Abc_Frame_t * pAbc, int argc, char ** argv )
 {
-    extern int Jsonc_ReadTest( char * pFileName );
+    extern Abc_Ntk_t * Jsonc_ReadNetwork( char * pFileName );
+    Abc_Ntk_t * pNtk;
     char * pFileName;
     FILE * pFile;
     int c;
@@ -1919,7 +1921,11 @@ int IoCommandReadJsonc( Abc_Frame_t * pAbc, int argc, char ** argv )
     }
     fclose( pFile );
 
-    Jsonc_ReadTest( pFileName );
+    pNtk = Jsonc_ReadNetwork( pFileName );
+    if ( pNtk == NULL )
+        return 1;
+    Abc_FrameReplaceCurrentNetwork( pAbc, pNtk );
+    Abc_FrameClearVerifStatus( pAbc );
     return 0;
 
 usage:
@@ -4166,20 +4172,44 @@ usage:
   SeeAlso     []
 
 ***********************************************************************/
+static int IoCommandWriteTruthsPlaDigits( int nObjs )
+{
+    int nDigits = 2;
+    for ( nObjs--; nObjs >= 100; nObjs /= 10 )
+        nDigits++;
+    return nDigits;
+}
+static void IoCommandWriteTruthsPlaNames( FILE * pFile, Gia_Man_t * pGia, int fOuts )
+{
+    int i, nObjs = fOuts ? Gia_ManCoNum(pGia) : Gia_ManPiNum(pGia);
+    int nDigits = IoCommandWriteTruthsPlaDigits( nObjs );
+    fprintf( pFile, "%s", fOuts ? ".ob" : ".ilb" );
+    for ( i = 0; i < nObjs; i++ )
+    {
+        char * pName = fOuts ? Gia_ObjCoName(pGia, i) : Gia_ObjCiName(pGia, i);
+        if ( pName )
+            fprintf( pFile, " %s", pName );
+        else
+            fprintf( pFile, " %s%0*d", fOuts ? "po" : "pi", nDigits, i );
+    }
+    fprintf( pFile, "\n" );
+}
 int IoCommandWriteTruths( Abc_Frame_t * pAbc, int argc, char **argv )
 {
     Gia_Obj_t * pObj;
     char * pFileName;
     FILE * pFile;
     word * pTruth;
+    Vec_Wrd_t * vTruths = NULL;
     int nBytes;
     int fReverse = 0;
     int fHex = 1;
     int fBinaryFile = 0;
-    int c, i;
+    int fPla = 0;
+    int c, i, k, m, Mint;
  
     Extra_UtilGetoptReset();
-    while ( ( c = Extra_UtilGetopt( argc, argv, "rxbh" ) ) != EOF )
+    while ( ( c = Extra_UtilGetopt( argc, argv, "rxbph" ) ) != EOF )
     {
         switch ( c )
         {
@@ -4192,6 +4222,9 @@ int IoCommandWriteTruths( Abc_Frame_t * pAbc, int argc, char **argv )
             case 'b':
                 fBinaryFile ^= 1;
                 break;
+            case 'p':
+                fPla ^= 1;
+                break;
             case 'h':
                 goto usage;
             default:
@@ -4201,7 +4234,7 @@ int IoCommandWriteTruths( Abc_Frame_t * pAbc, int argc, char **argv )
     if ( pAbc->pGia == NULL )
     {
         Abc_Print( -1, "IoCommandWriteTruths(): There is no AIG.\n" );
-        return 1;
+        return 0;
     } 
     if ( Gia_ManPiNum(pAbc->pGia) > 16 )
     {
@@ -4215,6 +4248,11 @@ int IoCommandWriteTruths( Abc_Frame_t * pAbc, int argc, char **argv )
     }
     if ( argc != globalUtilOptind + 1 )
         goto usage;
+    if ( fPla && fBinaryFile )
+    {
+        Abc_Print( -1, "IoCommandWriteTruths(): Options \"-p\" and \"-b\" cannot be used together.\n" );
+        return 0;
+    }
     // get the input file name
     pFileName = argv[globalUtilOptind];
     // convert to logic
@@ -4225,7 +4263,38 @@ int IoCommandWriteTruths( Abc_Frame_t * pAbc, int argc, char **argv )
         return 0;
     }
     nBytes = 8 * Abc_Truth6WordNum( Gia_ManPiNum(pAbc->pGia) );
-    Gia_ManForEachCo( pAbc->pGia, pObj, i )
+    if ( fPla )
+    {
+        vTruths = Vec_WrdAlloc( Gia_ManCoNum(pAbc->pGia) * Abc_Truth6WordNum(Gia_ManPiNum(pAbc->pGia)) );
+        Gia_ManForEachCo( pAbc->pGia, pObj, i )
+        {
+            pTruth = Gia_ObjComputeTruthTable( pAbc->pGia, pObj );
+            Vec_WrdPushArray( vTruths, pTruth, Abc_Truth6WordNum(Gia_ManPiNum(pAbc->pGia)) );
+        }
+        fprintf( pFile, ".i %d\n", Gia_ManPiNum(pAbc->pGia) );
+        fprintf( pFile, ".o %d\n", Gia_ManCoNum(pAbc->pGia) );
+        fprintf( pFile, ".type fr\n" );
+        IoCommandWriteTruthsPlaNames( pFile, pAbc->pGia, 0 );
+        IoCommandWriteTruthsPlaNames( pFile, pAbc->pGia, 1 );
+        fprintf( pFile, ".p %d\n", 1 << Gia_ManPiNum(pAbc->pGia) );
+        for ( m = 0; m < (1 << Gia_ManPiNum(pAbc->pGia)); m++ )
+        {
+            Mint = 0;
+            for ( k = Gia_ManPiNum(pAbc->pGia) - 1; k >= 0; k-- )
+            {
+                fprintf( pFile, "%d", (m >> k) & 1 );
+                if ( (m >> k) & 1 )
+                    Mint |= 1 << (Gia_ManPiNum(pAbc->pGia) - 1 - k);
+            }
+            fprintf( pFile, " " );
+            for ( i = 0; i < Gia_ManCoNum(pAbc->pGia); i++ )
+                fprintf( pFile, "%d", Abc_TtGetBit(Vec_WrdEntryP(vTruths, i * Abc_Truth6WordNum(Gia_ManPiNum(pAbc->pGia))), Mint) );
+            fprintf( pFile, "\n" );
+        }
+        fprintf( pFile, ".e\n" );
+        Vec_WrdFree( vTruths );
+    }
+    else Gia_ManForEachCo( pAbc->pGia, pObj, i )
     {
         pTruth = Gia_ObjComputeTruthTable( pAbc->pGia, pObj );
         if ( fBinaryFile )
@@ -4239,11 +4308,12 @@ int IoCommandWriteTruths( Abc_Frame_t * pAbc, int argc, char **argv )
     return 0;
 
 usage:
-    fprintf( pAbc->Err, "usage: &write_truth [-rxbh] <file>\n" );
-    fprintf( pAbc->Err, "\t         writes truth tables of each PO of GIA manager into a file\n" );
+    fprintf( pAbc->Err, "usage: &write_truth [-rxbph] <file>\n" );
+    fprintf( pAbc->Err, "\t         writes truth tables of GIA manager into a file\n" );
     fprintf( pAbc->Err, "\t-r     : toggle reversing bits in the truth table [default = %s]\n", fReverse? "yes":"no" );
     fprintf( pAbc->Err, "\t-x     : toggle writing in the hex notation [default = %s]\n", fHex? "yes":"no" );
     fprintf( pAbc->Err, "\t-b     : toggle using binary file format [default = %s]\n", fBinaryFile? "yes":"no" );
+    fprintf( pAbc->Err, "\t-p     : toggle writing PLA format with .type fr [default = %s]\n", fPla? "yes":"no" );
     fprintf( pAbc->Err, "\t-h     : print the help massage\n" );
     fprintf( pAbc->Err, "\tfile   : the name of the file to write\n" );
     return 1;
@@ -4393,6 +4463,54 @@ usage:
     fprintf( pAbc->Err, "\t-c     : output extracted version\n" );
     fprintf( pAbc->Err, "\t-h     : print the help message\n" );
     fprintf( pAbc->Err, "\tfile   : the name of the file to write (extension .json)\n" );
+    return 1;
+}
+
+/**Function*************************************************************
+
+  Synopsis    []
+
+  Description []
+               
+  SideEffects []
+
+  SeeAlso     []
+
+***********************************************************************/
+int IoCommandWriteJsonC( Abc_Frame_t * pAbc, int argc, char **argv )
+{
+    extern void Jsonc_WriteTest( Abc_Ntk_t * p, char * pFileName );
+    Abc_Ntk_t * pNtk = Abc_FrameReadNtk(pAbc);
+    char * pFileName;
+    int c;
+
+    Extra_UtilGetoptReset();
+    while ( ( c = Extra_UtilGetopt( argc, argv, "h" ) ) != EOF )
+    {
+        switch ( c )
+        {
+            case 'h':
+                goto usage;
+            default:
+                goto usage;
+        }
+    }
+    if ( pNtk == NULL || !Abc_NtkHasMapping(pNtk) )
+    {
+        fprintf( pAbc->Out, "No curent network or network is not mapped.\n" );
+        return 0;
+    }
+    if ( argc != globalUtilOptind + 1 )
+        goto usage;
+    pFileName = argv[globalUtilOptind];
+    Jsonc_WriteTest( pNtk, pFileName );
+    return 0;
+
+usage:
+    fprintf( pAbc->Err, "usage: write_jsonc [-ch] <file>\n" );
+    fprintf( pAbc->Err, "\t         write the network in JSONC format\n" );
+    fprintf( pAbc->Err, "\t-h     : print the help message\n" );
+    fprintf( pAbc->Err, "\tfile   : the name of the file to write (extension .jsonc)\n" );
     return 1;
 }
 
@@ -4558,4 +4676,3 @@ usage:
 
 
 ABC_NAMESPACE_IMPL_END
-
