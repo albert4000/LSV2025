@@ -393,6 +393,7 @@ struct Jf_Par_t_
     float *        pTimesArr;
     float *        pTimesReq;
     char *         ZFile;
+    char *         YFile;
 };
 
 static inline unsigned     Gia_ObjCutSign( unsigned ObjId )       { return (1 << (ObjId & 31));                                 }

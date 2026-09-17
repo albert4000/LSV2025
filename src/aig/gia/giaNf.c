@@ -2172,6 +2172,130 @@ void Nf_ManFixPoDrivers( Nf_Man_t * p )
   SeeAlso     []
 
 ***********************************************************************/
+static void Nf_ManCollectCover_rec( Gia_Man_t * pGia, int iLit, Vec_Int_t * vLeafVars, Vec_Int_t * vCover )
+{
+    Gia_Obj_t * pObj;
+    int iObj = Abc_Lit2Var( iLit );
+    int n, nFanins;
+    if ( iObj == 0 )
+        return;
+    if ( Vec_IntFind(vLeafVars, iObj) >= 0 )
+        return;
+    pObj = Gia_ManObj( pGia, iObj );
+    if ( Gia_ObjIsCi(pObj) || !Gia_ObjIsAnd(pObj) )
+        return;
+    Vec_IntPushUnique( vCover, iLit );
+    nFanins = Gia_ObjFaninNum( pGia, pObj );
+    for ( n = 0; n < nFanins; n++ )
+        Nf_ManCollectCover_rec( pGia, Gia_ObjFaninLitp(pGia, pObj, n), vLeafVars, vCover );
+}
+static void Nf_ManCollectCover( Nf_Man_t * p, int iObj, Vec_Int_t * vLeafVars, Vec_Int_t * vCover )
+{
+    Gia_Obj_t * pObj = Gia_ManObj( p->pGia, iObj );
+    int n, nFanins = Gia_ObjFaninNum( p->pGia, pObj );
+    Vec_IntClear( vCover );
+    if ( Gia_ObjIsCi(pObj) || !Gia_ObjIsAnd(pObj) )
+        return;
+    for ( n = 0; n < nFanins; n++ )
+        Nf_ManCollectCover_rec( p->pGia, Gia_ObjFaninLitp(p->pGia, pObj, n), vLeafVars, vCover );
+}
+void Nf_ManDumpMatchesUnified( Nf_Man_t * p )
+{
+    FILE * pFile = fopen( p->pPars->YFile, "wb" );
+    Gia_Obj_t * pObj; int n, iObj;
+    Vec_Int_t * vLeaves = Vec_IntAlloc( NF_LEAF_MAX );
+    Vec_Int_t * vLeafVars = Vec_IntAlloc( NF_LEAF_MAX );
+    Vec_Int_t * vCover = Vec_IntAlloc( 64 );
+    if ( pFile == NULL )
+    {
+        printf( "Nf_ManDumpMatchesUnified(): Cannot open output file \"%s\".\n", p->pPars->YFile );
+        Vec_IntFree( vLeaves );
+        Vec_IntFree( vLeafVars );
+        Vec_IntFree( vCover );
+        return;
+    }
+    // output matches with GradMap's unified candidate format:
+    // root cell area num_leaves leaves... num_cover cover...
+    Gia_ManForEachCi( p->pGia, pObj, n )
+        fprintf( pFile, "%d input %.2f\n", Abc_Var2Lit(Gia_ObjId(p->pGia, pObj), 0), 0.0 );
+    Gia_ManForEachAnd( p->pGia, pObj, iObj ) {
+        assert( !Gia_ObjIsBuf(pObj) );
+        for ( n = 0; n < 2; n++ ) {
+            int c, * pCut, * pCutSet = Nf_ObjCutSet( p, iObj );
+            Nf_SetForEachCut( pCutSet, pCut, c ) {
+                if ( Abc_Lit2Var(Nf_CutFunc(pCut)) >= Vec_WecSize(p->vTt2Match) )
+                    continue;
+                assert( !Nf_CutIsTriv(pCut, iObj) );
+                assert( Nf_CutSize(pCut) <= p->pPars->nLutSize );
+                assert( Abc_Lit2Var(Nf_CutFunc(pCut)) < Vec_WecSize(p->vTt2Match) );
+                int iFuncLit  = Nf_CutFunc(pCut);
+                int fComplExt = Abc_LitIsCompl(iFuncLit);
+                Vec_Int_t * v = Vec_WecEntry( p->vTt2Match, Abc_Lit2Var(iFuncLit) );
+                int j, k, Info, Offset, iFanin, fComplF;
+                Vec_IntForEachEntryDouble( v, Info, Offset, j ) {
+                    Nf_Cfg_t Cfg = Nf_Int2Cfg(Offset);
+                    int fCompl   = Cfg.fCompl ^ fComplExt;
+                    if ( fCompl != n )
+                        continue;
+                    Mio_Cell2_t*pC = Nf_ManCell( p, Info );
+                    assert( Nf_CutSize(pCut) == (int)pC->nFanins );
+                    Vec_IntClear( vLeaves );
+                    Vec_IntClear( vLeafVars );
+                    Nf_CutForEachVarCompl( pCut, Cfg, iFanin, fComplF, k ) {
+                        Vec_IntPush( vLeaves, Abc_Var2Lit(iFanin, fComplF) );
+                        Vec_IntPushUnique( vLeafVars, iFanin );
+                    }
+                    Nf_ManCollectCover( p, iObj, vLeafVars, vCover );
+                    fprintf( pFile, "%d ", Abc_Var2Lit(iObj, n) );
+                    fprintf( pFile, "%s ", pC->pName );
+                    fprintf( pFile, "%.2f %d", pC->AreaF, Vec_IntSize(vLeaves) );
+                    for ( k = 0; k < Vec_IntSize(vLeaves); k++ )
+                        fprintf( pFile, " %d", Vec_IntEntry(vLeaves, k) );
+                    fprintf( pFile, " %d", Vec_IntSize(vCover) );
+                    for ( k = 0; k < Vec_IntSize(vCover); k++ )
+                        fprintf( pFile, " %d", Vec_IntEntry(vCover, k) );
+                    fprintf( pFile, "\n" );
+                }
+            }
+        }
+    }
+    Gia_ManForEachCo( p->pGia, pObj, n )
+        fprintf( pFile, "%d output %.2f %d\n", Abc_Var2Lit(Gia_ObjId(p->pGia, pObj), 0), 0.0, Gia_ObjFaninLit0p(p->pGia, pObj) );
+    // output levels
+    extern int Gia_ManChoiceLevel( Gia_Man_t * p );
+    int LevelMax = Gia_ManChoiceLevel( p->pGia );
+    Gia_ManForEachCiId( p->pGia, iObj, n )
+        fprintf( pFile, "L%d %d\n", Abc_Var2Lit(iObj, 0), 0 );
+    Gia_ManForEachAnd( p->pGia, pObj, iObj )
+        fprintf( pFile, "L%d %d\n", Abc_Var2Lit(iObj, 0), Gia_ObjLevelId(p->pGia, iObj) );
+    Gia_ManForEachCoId( p->pGia, iObj, n )
+        fprintf( pFile, "L%d %d\n", Abc_Var2Lit(iObj, 0), LevelMax+1 );
+    // output mapping
+    Gia_ManForEachCiId( p->pGia, iObj, n )
+        if ( Nf_ObjMapRefNum(p, iObj, 1) )
+            fprintf( pFile, "M%d %s %.2f %d\n", Abc_Var2Lit(iObj, 1), p->pCells[3].pName, p->pCells[3].AreaF, Abc_Var2Lit(iObj, 0) );
+    Gia_ManForEachAnd( p->pGia, pObj, iObj )
+        for ( n = 0; n < 2; n++ )
+            if ( Nf_ObjMapRefNum(p, iObj, n) ) {
+                Nf_Mat_t * pM = Nf_ObjMatchBest(p, iObj, n);
+                if ( pM->fCompl ) {
+                    fprintf( pFile, "M%d %s %.2f %d\n", Abc_Var2Lit(iObj, n), p->pCells[3].pName, p->pCells[3].AreaF, Abc_Var2Lit(iObj, !n) );
+                    continue;
+                }
+                int k, iVar, fCompl, * pCut = Nf_CutFromHandle( Nf_ObjCutSet(p, iObj), pM->CutH );
+                Mio_Cell2_t*pC = Nf_ManCell( p, pM->Gate );
+                fprintf( pFile, "M%d ", Abc_Var2Lit(iObj, n) );
+                fprintf( pFile, "%s ", pC->pName );
+                fprintf( pFile, "%.2f", pC->AreaF );
+                Nf_CutForEachVarCompl( pCut, pM->Cfg, iVar, fCompl, k )
+                    fprintf( pFile, " %d", Abc_Var2Lit(iVar, fCompl) );
+                fprintf( pFile, "\n" );
+            }
+    fclose( pFile );
+    Vec_IntFree( vLeaves );
+    Vec_IntFree( vLeafVars );
+    Vec_IntFree( vCover );
+}
 void Nf_ManDumpMatches( Nf_Man_t * p )
 {
     FILE * pFile = fopen( p->pPars->ZFile, "wb" );
@@ -2450,10 +2574,12 @@ Gia_Man_t * Nf_ManDeriveMapping( Nf_Man_t * p )
     }
 //    assert( Vec_IntCap(vMapping) == 16 || Vec_IntSize(vMapping) == Vec_IntCap(vMapping) );
     p->pGia->vCellMapping = vMapping;
+    if ( p->pPars->YFile )
+        Nf_ManDumpMatchesUnified( p );
     if ( p->pPars->ZFile ) {
         if ( p->pPars->nMaxMatches )
             Nf_ManDumpMatchesBin( p, p->pPars->nMaxMatches );
-        else 
+        else
             Nf_ManDumpMatches( p );
     }
     return p->pGia;
