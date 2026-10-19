@@ -212,3 +212,6 @@ Temporary Items
 # Local History for Visual Studio Code
 .history/
 abc.history
+
+# experiment outputs of the src/develop prototypes
+src/develop/*/results/

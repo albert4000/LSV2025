@@ -1,0 +1,27 @@
+aag 12 6 0 2 6
+2
+4
+6
+8
+10
+12
+14
+24
+14 2 4
+16 6 8
+18 10 12
+20 14 16
+22 14 18
+24 20 22
+i0 a
+i1 b
+i2 c
+i3 d
+i4 e
+i5 f
+o0 u
+o1 v
+c
+u = a&b is a PO and also feeds v1 = u&(c&d), v2 = u&(e&f); v = v1&v2 is a PO.
+Optimum (S=2): everything in stage 0, register u and v -> 2.
+Spec 4.1 arc v_in->u_out forbids a registered u feeding stage-0 nodes -> 3.
